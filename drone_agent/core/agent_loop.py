@@ -5,6 +5,17 @@ from __future__ import annotations
 import json
 from typing import Any
 
+try:
+    import readline
+
+    # 关闭特殊字符截断，避免终端里中文输入删除异常。
+    readline.parse_and_bind("set bind-tty-special-chars off")
+    readline.parse_and_bind("set input-meta on")
+    readline.parse_and_bind("set output-meta on")
+    readline.parse_and_bind("set convert-meta off")
+except ImportError:
+    readline = None
+
 from drone_agent.core.safety import should_stop_after_tool_result
 from drone_agent.core.tool_dispatcher import dispatch_tool_call
 from drone_agent.logging.task_log import log_agent_message
