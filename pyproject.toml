@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "drone-agent"
+version = "0.1.0"
+description = "Natural-language UAV control agent using ROS2 px4_msgs DDS."
+requires-python = ">=3.10"
+dependencies = [
+  "openai>=1.0",
+  "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+]
+
+[project.scripts]
+drone_agent_sim = "drone_agent.cli:main_sim"
+drone_agent_real = "drone_agent.cli:main_real"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

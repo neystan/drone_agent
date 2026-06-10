@@ -1,0 +1,47 @@
+# Python cache and build artifacts
+__pycache__/
+*.py[cod]
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Test and coverage output
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Runtime logs and temporary outputs
+*.log
+tmp/
+temp/
+
+# Local environment and secrets
+.env
+.env.*
+
+# ROS and project runtime artifacts
+log/
+logs/
+*.db3
+*.mcap

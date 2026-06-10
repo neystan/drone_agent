@@ -1,0 +1,32 @@
+name: sim
+mode: simulation
+
+ros:
+  node_name: drone_agent_sim
+  camera_scene_topic: /airsim_node/PX4/CameraDepth1/Scene
+
+storage:
+  photo_save_dir: /home/hw/picture
+  analysis_save_dir: /home/hw/picture/analysis_frames
+  log_dir: /home/hw/drone_agent_logs/sim
+
+llm:
+  base_url: https://api.deepseek.com
+  model: deepseek-v4-flash
+  api_key_env: DRONE_AGENT_LLM_API_KEY
+
+vlm:
+  enabled: true
+  base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+  model: qwen3-vl-flash
+  api_key_env: DRONE_AGENT_VLM_API_KEY
+
+safety:
+  require_confirmation_for_real_flight: false
+  max_takeoff_height_m: 10
+  max_relative_move_m: 20
+  max_vertical_move_m: 10
+  max_rotation_deg: 360
+  action_timeout_s: 30
+  hover_on_timeout: true
+  stop_after_requires_confirmation: true
