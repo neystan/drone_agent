@@ -16,6 +16,7 @@ env/
 ENV/
 
 # Test and coverage output
+tests/
 .pytest_cache/
 .coverage
 .coverage.*
