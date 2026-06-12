@@ -10,15 +10,6 @@ storage:
   analysis_save_dir: /home/hw/picture/analysis_frames
   log_dir: /home/hw/drone_agent_logs/sim
 
-llm:
-  base_url: https://api.deepseek.com
-  model: deepseek-v4-flash
-
-vlm:
-  enabled: true
-  base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
-  model: qwen3-vl-flash
-
 safety:
   require_confirmation_for_real_flight: false
   max_takeoff_height_m: 10

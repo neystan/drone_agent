@@ -27,19 +27,20 @@ cp settings.example.json settings.json
 {
   "llm": {
     "api_key": "your-llm-key",
-    "base_url": "https://api.deepseek.com",
-    "model": "deepseek-v4-flash"
+    "base_url": "your-llm-base-url",
+    "model": "your-llm-model"
   },
   "vlm": {
     "enabled": true,
     "api_key": "your-vlm-key",
-    "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-    "model": "qwen3-vl-flash"
+    "base_url": "your-vlm-base-url",
+    "model": "your-vlm-model"
   }
 }
 ```
 
 `settings.example.json` 会提交到仓库，`settings.json` 只保留在本地。
+`base_url` 和 `model` 也由你自己填写，项目不再提供 provider 默认值。
 
 ## 作为 ROS2 包使用
 

@@ -80,8 +80,6 @@ def _build_profile(raw: dict[str, Any], settings: dict[str, Any]) -> RuntimeProf
     """把原始字典转换成经过校验的 RuntimeProfile。"""
     ros = raw["ros"]
     storage = raw["storage"]
-    llm = raw["llm"]
-    vlm = raw["vlm"]
     safety = raw["safety"]
     llm_settings = settings.get("llm", {})
     vlm_settings = settings.get("vlm", {})
@@ -92,12 +90,12 @@ def _build_profile(raw: dict[str, Any], settings: dict[str, Any]) -> RuntimeProf
         raise ValueError("settings.vlm must be a mapping")
 
     llm_api_key = str(llm_settings.get("api_key", "")).strip()
-    llm_base_url = str(llm_settings.get("base_url") or llm["base_url"])
-    llm_model = str(llm_settings.get("model") or llm["model"])
+    llm_base_url = str(llm_settings.get("base_url", "")).strip()
+    llm_model = str(llm_settings.get("model", "")).strip()
 
-    vlm_enabled = bool(vlm_settings.get("enabled", vlm.get("enabled", False)))
-    vlm_base_url = vlm_settings.get("base_url") or vlm.get("base_url")
-    vlm_model = vlm_settings.get("model") or vlm.get("model")
+    vlm_enabled = bool(vlm_settings.get("enabled", False))
+    vlm_base_url = str(vlm_settings.get("base_url", "")).strip() if vlm_enabled else None
+    vlm_model = str(vlm_settings.get("model", "")).strip() if vlm_enabled else None
     vlm_api_key = str(vlm_settings.get("api_key", "")).strip() if vlm_enabled else None
 
     return RuntimeProfile(
@@ -115,14 +113,12 @@ def _build_profile(raw: dict[str, Any], settings: dict[str, Any]) -> RuntimeProf
         llm=ProviderConfig(
             base_url=llm_base_url,
             model=llm_model,
-            api_key_env=None,
             api_key=llm_api_key,
         ),
         vlm=VlmConfig(
             enabled=vlm_enabled,
             base_url=str(vlm_base_url) if vlm_base_url is not None else None,
             model=str(vlm_model) if vlm_model is not None else None,
-            api_key_env=None,
             api_key=vlm_api_key,
         ),
         safety=SafetyConfig(

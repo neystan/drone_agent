@@ -42,7 +42,6 @@ class ProviderConfig:
 
     base_url: str
     model: str
-    api_key_env: str | None
     api_key: str
 
     def __post_init__(self) -> None:
@@ -62,7 +61,6 @@ class VlmConfig:
     enabled: bool
     base_url: str | None
     model: str | None
-    api_key_env: str | None
     api_key: str | None
 
     def __post_init__(self) -> None:

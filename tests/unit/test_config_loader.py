@@ -32,14 +32,12 @@ def test_runtime_profile_has_expected_nested_values():
         llm=ProviderConfig(
             base_url="https://api.deepseek.com",
             model="deepseek-v4-flash",
-            api_key_env=None,
             api_key="llm-key",
         ),
         vlm=VlmConfig(
             enabled=True,
             base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
             model="qwen3-vl-flash",
-            api_key_env=None,
             api_key="vlm-key",
         ),
         safety=SafetyConfig(
@@ -155,6 +153,26 @@ def test_load_profile_requires_llm_api_key_in_settings(tmp_path):
         load_profile("sim", settings_path=settings_path)
 
 
+def test_load_profile_requires_llm_base_url_and_model_in_settings(tmp_path):
+    settings_path = tmp_path / "settings.json"
+    settings_path.write_text(
+        json.dumps(
+            {
+                "llm": {
+                    "api_key": "llm-secret",
+                    "base_url": "",
+                    "model": "",
+                },
+                "vlm": {"enabled": False},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigError, match="provider base_url is required"):
+        load_profile("sim", settings_path=settings_path)
+
+
 def test_load_profile_can_use_explicit_profile_dir(tmp_path):
     profile_dir = tmp_path / "profiles"
     profile_dir.mkdir()
@@ -183,12 +201,6 @@ storage:
   photo_save_dir: /tmp/photos
   analysis_save_dir: /tmp/analysis
   log_dir: /tmp/logs
-llm:
-  base_url: https://example.com/v1
-  model: test-model
-  api_key_env: CUSTOM_LLM_KEY
-vlm:
-  enabled: false
 safety:
   require_confirmation_for_real_flight: false
   max_takeoff_height_m: 2
