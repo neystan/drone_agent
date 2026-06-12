@@ -42,7 +42,7 @@ class ProviderConfig:
 
     base_url: str
     model: str
-    api_key_env: str
+    api_key_env: str | None
     api_key: str
 
     def __post_init__(self) -> None:
@@ -51,10 +51,8 @@ class ProviderConfig:
             raise ValueError("provider base_url is required")
         if not self.model:
             raise ValueError("provider model is required")
-        if not self.api_key_env:
-            raise ValueError("provider api_key_env is required")
         if not self.api_key:
-            raise ValueError(f"environment variable {self.api_key_env} is required")
+            raise ValueError("provider api_key is required")
 
 
 @dataclass(frozen=True)
@@ -75,10 +73,8 @@ class VlmConfig:
             raise ValueError("vlm.base_url is required when vlm.enabled=true")
         if not self.model:
             raise ValueError("vlm.model is required when vlm.enabled=true")
-        if not self.api_key_env:
-            raise ValueError("vlm.api_key_env is required when vlm.enabled=true")
         if not self.api_key:
-            raise ValueError(f"environment variable {self.api_key_env} is required")
+            raise ValueError("vlm.api_key is required when vlm.enabled=true")
 
 
 @dataclass(frozen=True)

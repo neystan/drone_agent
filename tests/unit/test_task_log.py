@@ -13,10 +13,31 @@ def test_append_jsonl_creates_log_file(tmp_path):
     assert json.loads(content)["event_type"] == "demo"
 
 
-def test_log_tool_call_writes_jsonl(monkeypatch, tmp_path):
-    monkeypatch.setenv("DRONE_AGENT_LLM_API_KEY", "llm-secret")
-    monkeypatch.setenv("DRONE_AGENT_VLM_API_KEY", "vlm-secret")
-    profile = load_profile("sim")
+def _load_test_profile(tmp_path):
+    settings_path = tmp_path / "settings.json"
+    settings_path.write_text(
+        json.dumps(
+            {
+                "llm": {
+                    "api_key": "llm-secret",
+                    "base_url": "https://api.deepseek.com",
+                    "model": "deepseek-v4-flash",
+                },
+                "vlm": {
+                    "enabled": True,
+                    "api_key": "vlm-secret",
+                    "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                    "model": "qwen3-vl-flash",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    return load_profile("sim", settings_path=settings_path)
+
+
+def test_log_tool_call_writes_jsonl(tmp_path):
+    profile = _load_test_profile(tmp_path)
     profile = profile.__class__(
         name=profile.name,
         mode=profile.mode,
@@ -39,10 +60,8 @@ def test_log_tool_call_writes_jsonl(monkeypatch, tmp_path):
     assert event["arguments"] == {"x": 1}
 
 
-def test_log_agent_message_writes_jsonl(monkeypatch, tmp_path):
-    monkeypatch.setenv("DRONE_AGENT_LLM_API_KEY", "llm-secret")
-    monkeypatch.setenv("DRONE_AGENT_VLM_API_KEY", "vlm-secret")
-    profile = load_profile("sim")
+def test_log_agent_message_writes_jsonl(tmp_path):
+    profile = _load_test_profile(tmp_path)
     profile = profile.__class__(
         name=profile.name,
         mode=profile.mode,

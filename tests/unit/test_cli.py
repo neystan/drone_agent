@@ -41,7 +41,7 @@ def test_main_reports_config_error_without_traceback(monkeypatch, capsys):
 
     def fake_start_runtime(profile_name):
         """模拟运行时抛出配置错误。"""
-        raise ConfigError("environment variable DRONE_AGENT_LLM_API_KEY is required")
+        raise ConfigError("copy settings.example.json to settings.json first")
 
     monkeypatch.setattr(cli, "start_runtime", fake_start_runtime)
 
@@ -50,7 +50,4 @@ def test_main_reports_config_error_without_traceback(monkeypatch, capsys):
     captured = capsys.readouterr()
     assert exit_code == 2
     assert captured.out == ""
-    assert (
-        "config error: environment variable DRONE_AGENT_LLM_API_KEY is required"
-        in captured.err
-    )
+    assert "config error: copy settings.example.json to settings.json first" in captured.err

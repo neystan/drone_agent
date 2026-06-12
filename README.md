@@ -15,14 +15,31 @@
 - ROS2 包壳：`package.xml`、`setup.py`、`setup.cfg`、`resource/`
 - 旧设计文档归档：`docs/legacy_specs/`
 
-## 环境变量
+## 模型配置
 
 ```bash
-export DRONE_AGENT_LLM_API_KEY="your-llm-key"
-export DRONE_AGENT_VLM_API_KEY="your-vlm-key"
+cp settings.example.json settings.json
 ```
 
-API key 不建议写入源码仓库。
+然后在 `settings.json` 里填写模型配置：
+
+```json
+{
+  "llm": {
+    "api_key": "your-llm-key",
+    "base_url": "https://api.deepseek.com",
+    "model": "deepseek-v4-flash"
+  },
+  "vlm": {
+    "enabled": true,
+    "api_key": "your-vlm-key",
+    "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "model": "qwen3-vl-flash"
+  }
+}
+```
+
+`settings.example.json` 会提交到仓库，`settings.json` 只保留在本地。
 
 ## 作为 ROS2 包使用
 

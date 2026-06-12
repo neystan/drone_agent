@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import os
+import json
 from pathlib import Path
 from typing import Any
 
@@ -23,12 +23,19 @@ class ConfigError(RuntimeError):
 
 
 DEFAULT_PROFILE_DIR = Path(__file__).resolve().parent / "profiles"
+DEFAULT_SETTINGS_PATH = Path(__file__).resolve().parents[2] / "settings.json"
+DEFAULT_SETTINGS_EXAMPLE_PATH = Path(__file__).resolve().parents[2] / "settings.example.json"
 
 
-def load_profile(profile_name: str, profile_dir: Path | None = None) -> RuntimeProfile:
-    """从 YAML 和环境变量中加载指定 profile。"""
+def load_profile(
+    profile_name: str,
+    profile_dir: Path | None = None,
+    settings_path: Path | None = None,
+) -> RuntimeProfile:
+    """从 YAML 和本地 settings.json 中加载指定 profile。"""
     selected_dir = profile_dir or DEFAULT_PROFILE_DIR
     profile_path = selected_dir / f"{profile_name}.yaml"
+    selected_settings_path = settings_path or DEFAULT_SETTINGS_PATH
     if profile_name not in {"sim", "real"}:
         raise ConfigError(f"unknown profile: {profile_name}")
     if not profile_path.exists():
@@ -42,26 +49,56 @@ def load_profile(profile_name: str, profile_dir: Path | None = None) -> RuntimeP
     if not isinstance(raw, dict):
         raise ConfigError(f"profile must be a mapping: {profile_path}")
 
+    settings = _load_settings(selected_settings_path)
+
     try:
-        return _build_profile(raw)
+        return _build_profile(raw, settings)
     except (KeyError, TypeError, ValueError) as exc:
         raise ConfigError(str(exc)) from exc
 
 
-def _build_profile(raw: dict[str, Any]) -> RuntimeProfile:
+def _load_settings(settings_path: Path) -> dict[str, Any]:
+    """读取项目根目录的 settings.json。"""
+    if not settings_path.exists():
+        raise ConfigError(
+            f"settings file not found: {settings_path}. "
+            f"copy {DEFAULT_SETTINGS_EXAMPLE_PATH.name} to settings.json first"
+        )
+
+    try:
+        raw = json.loads(settings_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ConfigError(f"failed to parse settings {settings_path}: {exc}") from exc
+
+    if not isinstance(raw, dict):
+        raise ConfigError(f"settings must be a mapping: {settings_path}")
+
+    return raw
+
+
+def _build_profile(raw: dict[str, Any], settings: dict[str, Any]) -> RuntimeProfile:
     """把原始字典转换成经过校验的 RuntimeProfile。"""
     ros = raw["ros"]
     storage = raw["storage"]
     llm = raw["llm"]
     vlm = raw["vlm"]
     safety = raw["safety"]
+    llm_settings = settings.get("llm", {})
+    vlm_settings = settings.get("vlm", {})
 
-    llm_key_env = str(llm["api_key_env"])
-    llm_api_key = os.getenv(llm_key_env, "")
+    if not isinstance(llm_settings, dict):
+        raise ValueError("settings.llm must be a mapping")
+    if not isinstance(vlm_settings, dict):
+        raise ValueError("settings.vlm must be a mapping")
 
-    vlm_enabled = bool(vlm.get("enabled", False))
-    vlm_key_env = vlm.get("api_key_env")
-    vlm_api_key = os.getenv(str(vlm_key_env), "") if vlm_enabled and vlm_key_env else None
+    llm_api_key = str(llm_settings.get("api_key", "")).strip()
+    llm_base_url = str(llm_settings.get("base_url") or llm["base_url"])
+    llm_model = str(llm_settings.get("model") or llm["model"])
+
+    vlm_enabled = bool(vlm_settings.get("enabled", vlm.get("enabled", False)))
+    vlm_base_url = vlm_settings.get("base_url") or vlm.get("base_url")
+    vlm_model = vlm_settings.get("model") or vlm.get("model")
+    vlm_api_key = str(vlm_settings.get("api_key", "")).strip() if vlm_enabled else None
 
     return RuntimeProfile(
         name=str(raw["name"]),
@@ -76,16 +113,16 @@ def _build_profile(raw: dict[str, Any]) -> RuntimeProfile:
             log_dir=str(storage["log_dir"]),
         ),
         llm=ProviderConfig(
-            base_url=str(llm["base_url"]),
-            model=str(llm["model"]),
-            api_key_env=llm_key_env,
+            base_url=llm_base_url,
+            model=llm_model,
+            api_key_env=None,
             api_key=llm_api_key,
         ),
         vlm=VlmConfig(
             enabled=vlm_enabled,
-            base_url=vlm.get("base_url"),
-            model=vlm.get("model"),
-            api_key_env=str(vlm_key_env) if vlm_key_env else None,
+            base_url=str(vlm_base_url) if vlm_base_url is not None else None,
+            model=str(vlm_model) if vlm_model is not None else None,
+            api_key_env=None,
             api_key=vlm_api_key,
         ),
         safety=SafetyConfig(

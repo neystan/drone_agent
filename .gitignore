@@ -39,6 +39,7 @@ temp/
 # Local environment and secrets
 .env
 .env.*
+settings.json
 
 # ROS and project runtime artifacts
 log/
