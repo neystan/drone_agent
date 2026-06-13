@@ -13,8 +13,6 @@ WAIT_FOR_POSITION_TIMEOUT_S = 3.0
 LAND_TIMEOUT_S = 45.0
 MIN_IN_AIR_ALTITUDE_M = -0.3
 MAX_ALTITUDE_NED_M = -10.0
-
-
 def switch_to_hover_on_timeout(controller: Any) -> None:
     """在动作超时后切换到 PX4 悬停模式。"""
     controller.stop_position_hold()
@@ -41,11 +39,6 @@ def _wait_for_valid_position(controller: Any) -> bool:
             return True
         time.sleep(controller.timer_period)
     return controller.uav_position_is_valid()
-
-
-def _final_position(controller: Any) -> list[float]:
-    """读取当前结束时的位置。"""
-    return controller.current_position_ned()
 
 
 def takeoff(controller: Any, height: float, profile: RuntimeProfile) -> dict:
@@ -106,7 +99,7 @@ def takeoff(controller: Any, height: float, profile: RuntimeProfile) -> dict:
                 "reference_xy_ned": [current_position.x, current_position.y],
                 "reference_z_ned": current_position.z,
                 "target_position_ned": target_position,
-                "final_position_ned": _final_position(controller),
+                "final_position_ned": controller.current_position_ned(),
             }
         time.sleep(controller.timer_period)
 
@@ -117,7 +110,7 @@ def takeoff(controller: Any, height: float, profile: RuntimeProfile) -> dict:
         "error": "TAKEOFF_TIMEOUT",
         "message": "takeoff did not reach target height within timeout. Auto switched to hover mode.",
         "target_position_ned": target_position,
-        "final_position_ned": _final_position(controller),
+        "final_position_ned": controller.current_position_ned(),
     }
 
 
@@ -146,7 +139,7 @@ def land(controller: Any, profile: RuntimeProfile) -> dict:
             return {
                 "success": True,
                 "message": "landing complete, uav is on the ground",
-                "final_position_ned": _final_position(controller),
+                "final_position_ned": controller.current_position_ned(),
             }
         time.sleep(controller.timer_period)
 
@@ -156,7 +149,7 @@ def land(controller: Any, profile: RuntimeProfile) -> dict:
         "success": False,
         "error": "LAND_TIMEOUT",
         "message": "landing did not complete within timeout. Auto switched to hover mode.",
-        "final_position_ned": _final_position(controller),
+        "final_position_ned": controller.current_position_ned(),
     }
 
 
@@ -316,7 +309,7 @@ def rotate(controller: Any, direction: str, degrees: float, profile: RuntimeProf
             "message": "local heading is not valid",
         }
 
-    target_position = _final_position(controller)
+    target_position = controller.current_position_ned()
     if degrees == 0.0:
         controller.start_position_hold(target_position, current_heading)
         return {
@@ -368,7 +361,7 @@ def rotate(controller: Any, direction: str, degrees: float, profile: RuntimeProf
                         "message": f"rotate complete after {direction} {degrees:.1f} degrees",
                         "direction": direction,
                         "target_yaw_rad": final_heading,
-                        "final_position_ned": _final_position(controller),
+                        "final_position_ned": controller.current_position_ned(),
                     }
                 time.sleep(controller.timer_period)
             return {
@@ -376,7 +369,7 @@ def rotate(controller: Any, direction: str, degrees: float, profile: RuntimeProf
                 "message": f"rotate complete after {direction} {degrees:.1f} degrees",
                 "direction": direction,
                 "target_yaw_rad": final_heading,
-                "final_position_ned": _final_position(controller),
+                "final_position_ned": controller.current_position_ned(),
             }
 
         time.sleep(controller.timer_period)
@@ -389,7 +382,7 @@ def rotate(controller: Any, direction: str, degrees: float, profile: RuntimeProf
         "message": "rotate did not reach target angle within timeout. Auto switched to hover mode.",
         "direction": direction,
         "target_yaw_rad": previous_heading,
-        "final_position_ned": _final_position(controller),
+        "final_position_ned": controller.current_position_ned(),
     }
 
 
@@ -480,7 +473,7 @@ def move(controller: Any, x: float, y: float, z: float, profile: RuntimeProfile)
                 "message": f"move complete after body-frame offset ({x:.2f}, {y:.2f}, {z:.2f})",
                 "body_offset_frd": [x, y, z],
                 "target_position_ned": target_position,
-                "final_position_ned": _final_position(controller),
+                "final_position_ned": controller.current_position_ned(),
             }
         time.sleep(controller.timer_period)
 
@@ -492,5 +485,5 @@ def move(controller: Any, x: float, y: float, z: float, profile: RuntimeProfile)
         "message": "move did not reach target position within timeout. Auto switched to hover mode.",
         "body_offset_frd": [x, y, z],
         "target_position_ned": target_position,
-        "final_position_ned": _final_position(controller),
+        "final_position_ned": controller.current_position_ned(),
     }
