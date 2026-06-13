@@ -8,7 +8,6 @@ from typing import Any
 try:
     import readline
 
-    # 关闭特殊字符截断，避免终端里中文输入删除异常。
     readline.parse_and_bind("set bind-tty-special-chars off")
     readline.parse_and_bind("set input-meta on")
     readline.parse_and_bind("set output-meta on")
@@ -26,7 +25,7 @@ from drone_agent.tools.registry import ToolContext, get_tool_schemas
 MAX_TOOL_CALLS_PER_TURN = 50
 
 
-def run_agent_turn(
+def agent_loop(
     client: Any,
     model: str,
     messages: list[dict[str, Any]],
@@ -104,4 +103,4 @@ def run_interactive_agent(client: Any, model: str, context: ToolContext) -> None
             break
         messages.append({"role": "user", "content": user_input})
         log_agent_message(context.profile, "user", user_input)
-        run_agent_turn(client, model, messages, context)
+        agent_loop(client, model, messages, context)

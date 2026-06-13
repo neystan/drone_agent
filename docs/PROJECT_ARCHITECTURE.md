@@ -1,0 +1,231 @@
+# drone_agent 项目架构文档
+
+本文档描述当前 `/download/drone_agent` 的实际目录结构，并说明每个目录、每个文件的职责。
+
+## 1. 项目定位
+
+`drone_agent` 同时承担两个角色：
+
+- GitHub 主仓
+- ROS2 `ament_python` 包源码目录
+
+运行入口有两种：
+
+- 直接命令：`drone_agent_sim`、`drone_agent_real`
+- ROS2 命令：`ros2 run drone_agent drone_agent_sim`、`ros2 run drone_agent drone_agent_real`
+
+## 2. 顶层目录与文件
+
+### 2.1 项目自有目录
+
+| 路径 | 作用 |
+| --- | --- |
+| `docs/` | 项目文档目录。当前包含历史设计文档归档和本架构文档。 |
+| `drone_agent/` | 主 Python 包，包含配置、运行时、PX4 控制、工具、视觉、日志等核心代码。 |
+| `launch/` | ROS2 launch 文件，主要来自旧 ROS2 包壳，供相机/示例链路启动参考。 |
+| `resource/` | ROS2 `ament_python` 包索引资源目录。 |
+| `rviz/` | RViz 配置文件目录，主要用于旧链路的可视化配置。 |
+| `scripts/` | 可执行包装脚本目录，提供 `drone_agent_sim` 和 `drone_agent_real`。 |
+| `tests/` | 本地单元测试目录。当前已加入 `.gitignore`，默认不上传。 |
+
+### 2.2 顶层文件
+
+| 路径 | 作用 |
+| --- | --- |
+| `.gitignore` | Git 忽略规则，忽略 `settings.json`、`tests/`、缓存、日志等本地文件。 |
+| `README.md` | 项目使用说明，包含配置方式、ROS2 集成方式和启动命令。 |
+| `package.xml` | ROS2 包元数据，声明 `drone_agent` 为 `ament_python` 包及其运行依赖。 |
+| `pyproject.toml` | 独立 Python 包构建配置，支持 `pip install -e .` 和 console scripts。 |
+| `settings.example.json` | 模型配置模板文件，示例展示 `llm` 和 `vlm` 的 `api_key/base_url/model` 字段。 |
+| `settings.json` | 本地私有模型配置文件，实际运行读取它。已被 `.gitignore` 忽略。 |
+| `setup.cfg` | ROS2 Python 安装脚本路径配置。 |
+| `setup.py` | ROS2 `ament_python` 打包入口，注册资源文件、launch、rviz 和启动脚本。 |
+
+## 3. `docs/` 文档目录
+
+| 路径 | 作用 |
+| --- | --- |
+| `docs/PROJECT_ARCHITECTURE.md` | 当前文档，解释项目实际架构。 |
+| `docs/legacy_specs/` | 历史设计文档归档目录，不直接参与运行。 |
+| `docs/legacy_specs/DRONE_AGENT_SPEC.md` | 早期架构规格说明。 |
+| `docs/legacy_specs/MVP_DESIGN.md` | 早期 MVP 设计文档。 |
+| `docs/legacy_specs/UAV-Claw-MVP-Design.md` | 更早的抓取/任务相关设计文档。 |
+
+## 4. `drone_agent/` 主 Python 包
+
+### 4.1 包根文件
+
+| 路径 | 作用 |
+| --- | --- |
+| `drone_agent/__init__.py` | 包标记文件。 |
+| `drone_agent/__main__.py` | `python -m drone_agent` 的入口，默认转到仿真模式。 |
+| `drone_agent/cli.py` | 命令行入口层，提供 `main_sim()`、`main_real()`，负责把 profile 名交给 runtime。 |
+
+### 4.2 `drone_agent/config/`
+
+职责：管理运行配置，分离飞行 profile 和模型 settings。
+
+| 路径 | 作用 |
+| --- | --- |
+| `drone_agent/config/__init__.py` | 配置子包标记文件。 |
+| `drone_agent/config/loader.py` | 配置加载器。读取 `sim.yaml/real.yaml` 和项目根目录 `settings.json`，组装 `RuntimeProfile`。 |
+| `drone_agent/config/schema.py` | 配置数据结构定义，包含 `RuntimeProfile`、`RosConfig`、`StorageConfig`、`ProviderConfig`、`VlmConfig`、`SafetyConfig`。 |
+| `drone_agent/config/profiles/` | 运行 profile 目录，描述仿真/真机的 ROS、存储和安全差异。 |
+| `drone_agent/config/profiles/__init__.py` | profile 子目录的包标记文件，便于 setuptools 正确分发 YAML 配置。 |
+| `drone_agent/config/profiles/sim.yaml` | 仿真 profile，配置仿真节点名、相机 topic、图片目录、日志目录、安全阈值。 |
+| `drone_agent/config/profiles/real.yaml` | 真机 profile，配置真机节点名、真机存储路径和更严格的安全阈值。 |
+
+说明：
+
+- `settings.json` 负责模型配置：`api_key`、`base_url`、`model`
+- `sim.yaml/real.yaml` 只负责飞控与运行环境配置
+
+### 4.3 `drone_agent/core/`
+
+职责：连接 LLM、工具系统和 ROS2 运行时。
+
+| 路径 | 作用 |
+| --- | --- |
+| `drone_agent/core/__init__.py` | 核心运行时子包标记文件。 |
+| `drone_agent/core/agent_loop.py` | 交互式 Agent 对话循环，负责读取用户输入、调用 LLM、执行工具调用、处理中断条件。 |
+| `drone_agent/core/runtime.py` | 运行总控。负责加载 profile、创建 ROS2 executor、创建 `Px4Controller`、创建 LLM client 并启动 agent loop。 |
+| `drone_agent/core/safety.py` | Agent 侧安全判定逻辑，例如是否因 `requires_user_confirmation` 停止后续动作。 |
+| `drone_agent/core/tool_dispatcher.py` | 工具分发层。把模型输出的 tool call 解析后路由到具体工具处理函数。 |
+
+### 4.4 `drone_agent/llm/`
+
+职责：管理大模型接入与系统提示词。
+
+| 路径 | 作用 |
+| --- | --- |
+| `drone_agent/llm/__init__.py` | LLM 子包标记文件。 |
+| `drone_agent/llm/client.py` | 根据 `RuntimeProfile.llm` 创建 OpenAI-compatible 文本模型客户端。 |
+| `drone_agent/llm/prompts.py` | 存放系统提示词 `SYSTEM_PROMPT`，约束 agent 如何调用飞行、状态、视觉工具。 |
+
+### 4.5 `drone_agent/logging/`
+
+职责：记录任务和工具调用日志。
+
+| 路径 | 作用 |
+| --- | --- |
+| `drone_agent/logging/__init__.py` | 日志子包标记文件。 |
+| `drone_agent/logging/task_log.py` | 以 JSONL 格式记录 agent 消息和工具调用结果。 |
+
+### 4.6 `drone_agent/px4/`
+
+职责：封装 PX4 DDS 交互和底层控制能力。
+
+| 路径 | 作用 |
+| --- | --- |
+| `drone_agent/px4/__init__.py` | PX4 子包标记文件。 |
+| `drone_agent/px4/controller.py` | `Px4Controller(Node)` 实现。负责 publisher/subscriber、状态缓存、心跳、命令发送、setpoint 发布、相机帧接收。 |
+| `drone_agent/px4/frame.py` | 坐标系和角度工具，例如 body 坐标到 NED 坐标转换。 |
+| `drone_agent/px4/status.py` | PX4 状态字段解析与可读化辅助函数。 |
+| `drone_agent/px4/topics.py` | PX4 DDS topic 常量定义。 |
+
+### 4.7 `drone_agent/tools/`
+
+职责：LLM 可调用工具层。
+
+| 路径 | 作用 |
+| --- | --- |
+| `drone_agent/tools/__init__.py` | 工具子包标记文件。 |
+| `drone_agent/tools/flight.py` | 飞行动作工具实现，如起飞、降落、返航、悬停、旋转、移动、计时。 |
+| `drone_agent/tools/perception.py` | 感知工具实现，如拍照和视觉分析，负责从 controller 取最新图像并调用视觉模块。 |
+| `drone_agent/tools/registry.py` | 工具注册表，定义工具名、schema、handler 之间的映射，并定义 `ToolContext`。 |
+| `drone_agent/tools/schemas.py` | Function Calling 的工具 schema 定义。 |
+| `drone_agent/tools/status.py` | 状态查询工具，如当前位置、电池状态、飞行模式状态。 |
+
+### 4.8 `drone_agent/vision/`
+
+职责：视觉模型与图像文件处理。
+
+| 路径 | 作用 |
+| --- | --- |
+| `drone_agent/vision/__init__.py` | 视觉子包标记文件。 |
+| `drone_agent/vision/image_store.py` | 保存拍照结果和分析帧到磁盘。 |
+| `drone_agent/vision/vlm.py` | 创建视觉模型客户端、构造视觉提示词、编码图像、调用 VLM、解析和归一化视觉结果。 |
+
+## 5. `launch/` ROS2 launch 目录
+
+这些文件主要是从旧 ROS2 包壳保留下来的辅助启动文件，不是当前 `drone_agent_sim` / `drone_agent_real` 主入口。
+
+| 路径 | 作用 |
+| --- | --- |
+| `launch/lesson3.launch.py` | 旧链路的 ROS2 launch 文件。 |
+| `launch/lesson6.launch.py` | 旧链路的 ROS2 launch 文件。 |
+| `launch/takeoff_camera.launch.py` | 旧链路的相机/起飞相关 launch 文件。 |
+
+## 6. `resource/` ROS2 资源目录
+
+| 路径 | 作用 |
+| --- | --- |
+| `resource/drone_agent` | ROS2 `ament_index` 识别包名 `drone_agent` 的资源标记文件。 |
+
+## 7. `rviz/` 配置目录
+
+这些文件主要服务于旧的可视化调试流程。
+
+| 路径 | 作用 |
+| --- | --- |
+| `rviz/depth_cloud.rviz` | 深度点云显示配置。 |
+| `rviz/image_lidar.rviz` | 图像与雷达联合显示配置。 |
+| `rviz/lesson6.rviz` | 旧 lesson6 场景的 RViz 配置。 |
+
+## 8. `scripts/` 启动脚本目录
+
+| 路径 | 作用 |
+| --- | --- |
+| `scripts/drone_agent_sim` | 仿真模式包装脚本，最终调用 `drone_agent.cli:main_sim`。 |
+| `scripts/drone_agent_real` | 真机模式包装脚本，最终调用 `drone_agent.cli:main_real`。 |
+| `scripts/camera_view_sim` | 仿真前视相机预览节点，供 `takeoff_camera.launch.py` 等旧 launch 链路启动 OpenCV 预览。 |
+
+## 9. `tests/` 本地测试目录
+
+`tests/` 当前保留在本地，但默认不上传。它主要用于回归验证，不参与生产运行。
+
+### 9.1 `tests/unit/`
+
+| 路径 | 作用 |
+| --- | --- |
+| `tests/unit/.gitkeep` | 空目录占位文件。 |
+| `tests/unit/test_cli.py` | 测试 CLI 入口的 profile 路由和配置错误输出。 |
+| `tests/unit/test_cli_runtime_mode.py` | 测试 CLI 与 runtime 模式之间的接线。 |
+| `tests/unit/test_config_loader.py` | 测试 profile + settings 配置加载和校验。 |
+| `tests/unit/test_llm_prompts.py` | 测试系统提示词中的关键约束是否存在。 |
+| `tests/unit/test_px4_controller_source.py` | 对 `Px4Controller` 源码结构做静态检查。 |
+| `tests/unit/test_px4_frame.py` | 测试坐标与角度转换函数。 |
+| `tests/unit/test_px4_status.py` | 测试 PX4 状态解析逻辑。 |
+| `tests/unit/test_runtime.py` | 测试 runtime 的 profile 准备逻辑。 |
+| `tests/unit/test_safety.py` | 测试安全判定逻辑。 |
+| `tests/unit/test_task_log.py` | 测试 JSONL 日志输出逻辑。 |
+| `tests/unit/test_tool_dispatcher.py` | 测试工具分发、参数解析和错误处理。 |
+| `tests/unit/test_tools_registry.py` | 测试工具注册表完整性和部分工具行为。 |
+| `tests/unit/test_tools_schemas.py` | 测试 Function Calling schema 的结构。 |
+| `tests/unit/test_vision_image_store.py` | 测试图片保存逻辑。 |
+| `tests/unit/test_vision_vlm.py` | 测试视觉结果归一化、JSON 提取和建议动作推导。 |
+
+## 10. 本地生成或非架构核心目录
+
+这些目录存在于当前工作区，但不是项目源码架构的一部分：
+
+| 路径 | 作用 |
+| --- | --- |
+| `.git/` | Git 元数据目录。 |
+| `.pytest_cache/` | pytest 运行缓存。 |
+| `__pycache__/`、`drone_agent/**/__pycache__/`、`tests/**/__pycache__/` | Python 字节码缓存。 |
+
+## 11. 当前建议的阅读顺序
+
+如果要快速理解项目，建议按下面顺序读：
+
+1. `README.md`
+2. `settings.example.json`
+3. `drone_agent/cli.py`
+4. `drone_agent/core/runtime.py`
+5. `drone_agent/config/loader.py`
+6. `drone_agent/px4/controller.py`
+7. `drone_agent/tools/registry.py`
+8. `drone_agent/tools/flight.py`
+9. `drone_agent/tools/perception.py`
+10. `drone_agent/vision/vlm.py`

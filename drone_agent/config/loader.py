@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -23,8 +24,10 @@ class ConfigError(RuntimeError):
 
 
 DEFAULT_PROFILE_DIR = Path(__file__).resolve().parent / "profiles"
-DEFAULT_SETTINGS_PATH = Path(__file__).resolve().parents[2] / "settings.json"
-DEFAULT_SETTINGS_EXAMPLE_PATH = Path(__file__).resolve().parents[2] / "settings.example.json"
+PACKAGE_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_SETTINGS_PATH = PACKAGE_ROOT / "settings.json"
+DEFAULT_SETTINGS_EXAMPLE_PATH = PACKAGE_ROOT / "settings.example.json"
+SETTINGS_ENV_VAR = "DRONE_AGENT_SETTINGS"
 
 
 def load_profile(
@@ -35,7 +38,7 @@ def load_profile(
     """从 YAML 和本地 settings.json 中加载指定 profile。"""
     selected_dir = profile_dir or DEFAULT_PROFILE_DIR
     profile_path = selected_dir / f"{profile_name}.yaml"
-    selected_settings_path = settings_path or DEFAULT_SETTINGS_PATH
+    selected_settings_path = resolve_settings_path(settings_path)
     if profile_name not in {"sim", "real"}:
         raise ConfigError(f"unknown profile: {profile_name}")
     if not profile_path.exists():
@@ -74,6 +77,37 @@ def _load_settings(settings_path: Path) -> dict[str, Any]:
         raise ConfigError(f"settings must be a mapping: {settings_path}")
 
     return raw
+
+
+def resolve_settings_path(settings_path: Path | None = None) -> Path:
+    """Resolve the runtime settings file across source and installed layouts."""
+    if settings_path is not None:
+        return settings_path
+
+    env_path = os.environ.get(SETTINGS_ENV_VAR, "").strip()
+    if env_path:
+        return Path(env_path).expanduser().resolve()
+
+    candidates: list[Path] = []
+
+    cwd = Path.cwd().resolve()
+    for base in [cwd, *cwd.parents]:
+        candidates.append(base / "settings.json")
+        candidates.append(base / "src" / "drone_agent" / "settings.json")
+
+    for base in [PACKAGE_ROOT, *PACKAGE_ROOT.parents]:
+        candidates.append(base / "settings.json")
+        candidates.append(base / "src" / "drone_agent" / "settings.json")
+
+    seen: set[Path] = set()
+    for candidate in candidates:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        if candidate.exists():
+            return candidate
+
+    return DEFAULT_SETTINGS_PATH
 
 
 def _build_profile(raw: dict[str, Any], settings: dict[str, Any]) -> RuntimeProfile:

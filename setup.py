@@ -41,6 +41,7 @@ setup(
         "console_scripts": [
             "drone_agent_sim = drone_agent.cli:main_sim",
             "drone_agent_real = drone_agent.cli:main_real",
+            "camera_view_sim = drone_agent.camera_view_sim:main",
         ],
     },
 )
