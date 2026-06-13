@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+from typing import Any
+
 from drone_agent.config.schema import RuntimeProfile
 
 
@@ -16,17 +19,44 @@ FLIGHT_TOOL_NAMES = {
 }
 
 
-def should_stop_after_tool_result(profile: RuntimeProfile, result: dict) -> bool:
-    """根据工具结果判断是否应当中断后续工具调用。"""
-    if not result.get("requires_user_confirmation"):
-        return False
-    return profile.safety.stop_after_requires_confirmation
+class EndCurrentTurn(RuntimeError):
+    """用于立即结束当前 agent 执行轮次。"""
+
+    def __init__(self, message: str, tool_result: dict[str, Any] | None = None) -> None:
+        super().__init__(message)
+        self.tool_result = tool_result
 
 
-def requires_real_flight_confirmation(profile: RuntimeProfile, tool_name: str) -> bool:
-    """判断真机模式下某个工具是否默认需要人工确认。"""
-    if profile.mode != "real":
-        return False
-    if not profile.safety.require_confirmation_for_real_flight:
+def requires_human_in_the_loop(profile: RuntimeProfile, tool_name: str) -> bool:
+    """判断当前工具是否需要人工确认后才能执行。"""
+    if not profile.safety.human_in_the_loop_for_flight_tools:
         return False
     return tool_name in FLIGHT_TOOL_NAMES
+
+
+def confirm_flight_tool(tool_name: str, arguments: dict[str, Any]) -> None:
+    """在执行飞行工具前要求用户用 Y/N 明确确认。"""
+    print(
+        "confirm> "
+        f"{tool_name} args={json.dumps(arguments, ensure_ascii=False)}"
+    )
+    while True:
+        answer = input("human-in-the-loop> 执行该飞行动作？[Y/N]: ").strip().lower()
+        if answer == "y":
+            return
+        if answer == "n":
+            raise EndCurrentTurn(
+                f"已取消本次 {tool_name} 执行。",
+                {
+                    "success": False,
+                    "error": "HUMAN_IN_THE_LOOP_DECLINED",
+                    "message": f"已取消本次 {tool_name} 执行。",
+                },
+            )
+        print("human-in-the-loop> 请输入 Y 或 N。")
+
+
+def should_end_turn_after_tool_result(result: dict[str, Any]) -> bool:
+    """判断工具结果是否应直接结束当前轮。"""
+    error = str(result.get("error", "")).strip()
+    return error.endswith("_TIMEOUT")

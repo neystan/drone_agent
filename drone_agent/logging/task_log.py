@@ -38,7 +38,6 @@ def log_tool_call(
         "tool_name": tool_name,
         "arguments": arguments,
         "result": result,
-        "requires_user_confirmation": bool(result.get("requires_user_confirmation")),
     }
     try:
         append_jsonl(profile.storage.log_dir, "tool_calls.jsonl", event)

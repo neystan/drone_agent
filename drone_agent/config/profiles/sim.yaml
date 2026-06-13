@@ -11,11 +11,10 @@ storage:
   log_dir: /home/hw/drone_agent_logs/sim
 
 safety:
-  require_confirmation_for_real_flight: false
+  human_in_the_loop_for_flight_tools: false
   max_takeoff_height_m: 10
   max_relative_move_m: 20
   max_vertical_move_m: 10
   max_rotation_deg: 360
   action_timeout_s: 30
   hover_on_timeout: true
-  stop_after_requires_confirmation: true

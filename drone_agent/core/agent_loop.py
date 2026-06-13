@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from drone_agent.core.safety import should_stop_after_tool_result
+from drone_agent.core.safety import EndCurrentTurn
 from drone_agent.core.tool_dispatcher import dispatch_tool_call
 from drone_agent.logging.task_log import log_agent_message
 from drone_agent.tools.registry import ToolContext, get_tool_schemas
@@ -59,7 +59,21 @@ def agent_loop(
         )
 
         for call in tool_calls:
-            tool_result = dispatch_tool_call(context, call)
+            try:
+                tool_result = dispatch_tool_call(context, call)
+            except EndCurrentTurn as exc:
+                if exc.tool_result is not None:
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": call.id,
+                            "content": json.dumps(exc.tool_result, ensure_ascii=False),
+                        }
+                    )
+                assistant_text = str(exc)
+                print(f"agent> {assistant_text}")
+                log_agent_message(context.profile, "assistant", assistant_text)
+                return assistant_text
             messages.append(
                 {
                     "role": "tool",
@@ -67,11 +81,6 @@ def agent_loop(
                     "content": json.dumps(tool_result, ensure_ascii=False),
                 }
             )
-            if should_stop_after_tool_result(context.profile, tool_result):
-                assistant_text = tool_result.get("message", "工具返回需要用户确认。")
-                print(f"agent> {assistant_text}")
-                log_agent_message(context.profile, "assistant", assistant_text)
-                return assistant_text
 
     assistant_text = "本轮工具调用次数过多，已停止。"
     print(f"agent> {assistant_text}")

@@ -116,7 +116,6 @@ def takeoff(controller: Any, height: float, profile: RuntimeProfile) -> dict:
         "success": False,
         "error": "TAKEOFF_TIMEOUT",
         "message": "takeoff did not reach target height within timeout. Auto switched to hover mode.",
-        "requires_user_confirmation": True,
         "target_position_ned": target_position,
         "final_position_ned": _final_position(controller),
     }
@@ -157,7 +156,6 @@ def land(controller: Any, profile: RuntimeProfile) -> dict:
         "success": False,
         "error": "LAND_TIMEOUT",
         "message": "landing did not complete within timeout. Auto switched to hover mode.",
-        "requires_user_confirmation": True,
         "final_position_ned": _final_position(controller),
     }
 
@@ -389,7 +387,6 @@ def rotate(controller: Any, direction: str, degrees: float, profile: RuntimeProf
         "success": False,
         "error": "ROTATE_TIMEOUT",
         "message": "rotate did not reach target angle within timeout. Auto switched to hover mode.",
-        "requires_user_confirmation": True,
         "direction": direction,
         "target_yaw_rad": previous_heading,
         "final_position_ned": _final_position(controller),
@@ -493,7 +490,6 @@ def move(controller: Any, x: float, y: float, z: float, profile: RuntimeProfile)
         "success": False,
         "error": "MOVE_TIMEOUT",
         "message": "move did not reach target position within timeout. Auto switched to hover mode.",
-        "requires_user_confirmation": True,
         "body_offset_frd": [x, y, z],
         "target_position_ned": target_position,
         "final_position_ned": _final_position(controller),

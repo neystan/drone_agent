@@ -136,8 +136,8 @@ def _build_profile(raw: dict[str, Any], settings: dict[str, Any]) -> RuntimeProf
             api_key=vlm_api_key,
         ),
         safety=SafetyConfig(
-            require_confirmation_for_real_flight=bool(
-                safety["require_confirmation_for_real_flight"]
+            human_in_the_loop_for_flight_tools=bool(
+                safety["human_in_the_loop_for_flight_tools"]
             ),
             max_takeoff_height_m=float(safety["max_takeoff_height_m"]),
             max_relative_move_m=float(safety["max_relative_move_m"]),
@@ -145,8 +145,5 @@ def _build_profile(raw: dict[str, Any], settings: dict[str, Any]) -> RuntimeProf
             max_rotation_deg=float(safety["max_rotation_deg"]),
             action_timeout_s=float(safety["action_timeout_s"]),
             hover_on_timeout=bool(safety["hover_on_timeout"]),
-            stop_after_requires_confirmation=bool(
-                safety["stop_after_requires_confirmation"]
-            ),
         ),
     )

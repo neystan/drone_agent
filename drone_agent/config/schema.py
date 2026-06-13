@@ -79,14 +79,13 @@ class VlmConfig:
 class SafetyConfig:
     """飞行安全限制配置。"""
 
-    require_confirmation_for_real_flight: bool
+    human_in_the_loop_for_flight_tools: bool
     max_takeoff_height_m: float
     max_relative_move_m: float
     max_vertical_move_m: float
     max_rotation_deg: float
     action_timeout_s: float
     hover_on_timeout: bool
-    stop_after_requires_confirmation: bool
 
     def __post_init__(self) -> None:
         """校验安全阈值是否为正数。"""

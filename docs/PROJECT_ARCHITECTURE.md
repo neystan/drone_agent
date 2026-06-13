@@ -89,7 +89,7 @@
 | `drone_agent/core/__init__.py` | 核心运行时子包标记文件。 |
 | `drone_agent/core/agent_loop.py` | 交互式 Agent 对话循环，负责读取用户输入、调用 LLM、执行工具调用、处理中断条件。 |
 | `drone_agent/core/runtime.py` | 运行总控。负责加载 profile、创建 ROS2 executor、创建 `Px4Controller`、创建 LLM client 并启动 agent loop。 |
-| `drone_agent/core/safety.py` | Agent 侧安全判定逻辑，例如是否因 `requires_user_confirmation` 停止后续动作。 |
+| `drone_agent/core/safety.py` | Agent 侧安全判定逻辑，例如飞行工具是否需要 Y/N 人工确认，以及哪些结果会直接结束当前轮。 |
 | `drone_agent/core/tool_dispatcher.py` | 工具分发层。把模型输出的 tool call 解析后路由到具体工具处理函数。 |
 
 ### 4.4 `drone_agent/llm/`
