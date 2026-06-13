@@ -30,6 +30,7 @@ def dispatch_tool_call(context: ToolContext, call: Any) -> dict:
         }
         log_tool_call(
             context.profile,
+            context.session_id,
             tool_name,
             {"raw_arguments": raw_arguments},
             result,
@@ -46,6 +47,7 @@ def dispatch_tool_call(context: ToolContext, call: Any) -> dict:
         }
         log_tool_call(
             context.profile,
+            context.session_id,
             tool_name,
             {"raw_arguments": raw_arguments},
             result,
@@ -58,7 +60,7 @@ def dispatch_tool_call(context: ToolContext, call: Any) -> dict:
             "error": "INVALID_TOOL_ARGUMENTS",
             "message": "tool arguments must be a JSON object",
         }
-        log_tool_call(context.profile, tool_name, arguments, result)
+        log_tool_call(context.profile, context.session_id, tool_name, arguments, result)
         return result
 
     if requires_human_in_the_loop(context.profile, tool_name):
@@ -70,11 +72,11 @@ def dispatch_tool_call(context: ToolContext, call: Any) -> dict:
                 "error": "HUMAN_IN_THE_LOOP_DECLINED",
                 "message": str(exc),
             }
-            log_tool_call(context.profile, tool_name, arguments, result)
+            log_tool_call(context.profile, context.session_id, tool_name, arguments, result)
             raise EndCurrentTurn(str(exc), result) from exc
 
     result = definition.handler(context, arguments)
-    log_tool_call(context.profile, tool_name, arguments, result)
+    log_tool_call(context.profile, context.session_id, tool_name, arguments, result)
     if should_end_turn_after_tool_result(result):
         raise EndCurrentTurn(
             result.get("message", "当前工具执行超时，本轮已结束。"),

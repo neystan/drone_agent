@@ -13,6 +13,8 @@ WAIT_FOR_POSITION_TIMEOUT_S = 3.0
 LAND_TIMEOUT_S = 45.0
 MIN_IN_AIR_ALTITUDE_M = -0.3
 MAX_ALTITUDE_NED_M = -10.0
+
+#控制工具
 def switch_to_hover_on_timeout(controller: Any) -> None:
     """在动作超时后切换到 PX4 悬停模式。"""
     controller.stop_position_hold()

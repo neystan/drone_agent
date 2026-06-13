@@ -29,10 +29,11 @@ ToolHandler = Callable[["ToolContext", dict[str, Any]], dict[str, Any]]
 
 @dataclass(frozen=True)
 class ToolContext:
-    """保存一次工具调用所需的运行时上下文。"""
+    """将执行一次工具所需的一切环境（控制器、配置、会话ID）打包在一起"""
 
     controller: Any
     profile: RuntimeProfile
+    session_id: str = "adhoc"
 
 
 @dataclass(frozen=True)
@@ -127,17 +128,9 @@ TOOL_DEFINITIONS = [
     ToolDefinition("timer", TIMER_TOOL_SCHEMA, _timer_handler),
     ToolDefinition("hover", HOVER_TOOL_SCHEMA, _hover_handler),
     ToolDefinition("return_home", RETURN_HOME_TOOL_SCHEMA, _return_home_handler),
-    ToolDefinition(
-        "current_position_status",
-        CURRENT_POSITION_TOOL_SCHEMA,
-        _current_position_handler,
-    ),
+    ToolDefinition("current_position_status", CURRENT_POSITION_TOOL_SCHEMA, _current_position_handler),
     ToolDefinition("battery_status", BATTERY_STATUS_TOOL_SCHEMA, _battery_status_handler),
-    ToolDefinition(
-        "flight_mode_status",
-        FLIGHT_MODE_STATUS_TOOL_SCHEMA,
-        _flight_mode_status_handler,
-    ),
+    ToolDefinition("flight_mode_status", FLIGHT_MODE_STATUS_TOOL_SCHEMA, _flight_mode_status_handler),
     ToolDefinition("rotate", ROTATE_TOOL_SCHEMA, _rotate_handler),
     ToolDefinition("move", MOVE_TOOL_SCHEMA, _move_handler),
     ToolDefinition("take_photo", TAKE_PHOTO_TOOL_SCHEMA, _take_photo_handler),
@@ -157,6 +150,7 @@ def get_tool_definition(name: str) -> ToolDefinition | None:
     return TOOL_DEFINITION_BY_NAME.get(name)
 
 
+#界定工具注册表的“公开接口
 __all__ = [
     "ToolContext",
     "ToolDefinition",

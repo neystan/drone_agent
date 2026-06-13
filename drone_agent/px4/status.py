@@ -23,16 +23,8 @@ def flight_mode_status_dict(controller: Any, vehicle_status_enum: type[Any]) -> 
     arming_state = controller.vehicle_status.arming_state
     return {
         "success": True,
-        "nav_state_name": enum_name_from_prefix(
-            vehicle_status_enum,
-            "NAVIGATION_STATE_",
-            nav_state,
-        ),
-        "arming_state_name": enum_name_from_prefix(
-            vehicle_status_enum,
-            "ARMING_STATE_",
-            arming_state,
-        ),
+        "nav_state_name": enum_name_from_prefix(vehicle_status_enum, "NAVIGATION_STATE_", nav_state),
+        "arming_state_name": enum_name_from_prefix(vehicle_status_enum, "ARMING_STATE_", arming_state),
         "in_air": controller.uav_is_in_air(),
         "position_valid": controller.uav_position_is_valid(),
         "heading_valid": math.isfinite(heading),

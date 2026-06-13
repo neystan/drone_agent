@@ -37,7 +37,7 @@ def agent_loop(
             assistant_text = message.content or ""
             print(f"agent> {assistant_text}")
             messages.append({"role": "assistant", "content": assistant_text})
-            log_agent_message(context.profile, "assistant", assistant_text)
+            log_agent_message(context.profile, context.session_id, "assistant", assistant_text)
             return assistant_text
 
         messages.append(
@@ -72,7 +72,7 @@ def agent_loop(
                     )
                 assistant_text = str(exc)
                 print(f"agent> {assistant_text}")
-                log_agent_message(context.profile, "assistant", assistant_text)
+                log_agent_message(context.profile, context.session_id, "assistant", assistant_text)
                 return assistant_text
             messages.append(
                 {
@@ -84,5 +84,5 @@ def agent_loop(
 
     assistant_text = "本轮工具调用次数过多，已停止。"
     print(f"agent> {assistant_text}")
-    log_agent_message(context.profile, "assistant", assistant_text)
+    log_agent_message(context.profile, context.session_id, "assistant", assistant_text)
     return assistant_text

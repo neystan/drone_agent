@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from drone_agent.config.loader import load_profile
-from drone_agent.logging.task_log import log_agent_message
+from drone_agent.logging.task_log import create_session_id, log_agent_message
 from drone_agent.llm.client import create_llm_client
 from drone_agent.llm.prompts import SYSTEM_PROMPT
 from drone_agent.tools.registry import ToolContext
@@ -61,10 +61,9 @@ def _start_live_runtime(profile) -> None:
         executor.add_node(controller)
         executor_thread = threading.Thread(target=executor.spin, daemon=True)
         client = create_llm_client(profile)
-        context = ToolContext(controller=controller, profile=profile)
-
+        context = ToolContext(controller=controller, profile=profile, session_id=create_session_id())
         executor_thread.start()
-        log_agent_message(profile, "system", SYSTEM_PROMPT)
+        log_agent_message(profile, context.session_id, "system", SYSTEM_PROMPT)
         _run_interactive_loop(client, profile.llm.model, context, agent_loop)
     finally:
         executor.shutdown()
@@ -102,5 +101,5 @@ def _run_interactive_loop(client: Any, model: str, context: ToolContext, loop_fn
         if user_input.lower() in {"exit", "quit"}:
             break
         messages.append({"role": "user", "content": user_input})
-        log_agent_message(context.profile, "user", user_input)
+        log_agent_message(context.profile, context.session_id, "user", user_input)
         loop_fn(client, model, messages, context)

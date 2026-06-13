@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 from drone_agent.config.schema import RuntimeProfile
+
+BEIJING_TZ = timezone(timedelta(hours=8))
 
 
 def append_jsonl(log_dir: str, filename: str, event: dict[str, Any]) -> None:
@@ -20,12 +22,23 @@ def append_jsonl(log_dir: str, filename: str, event: dict[str, Any]) -> None:
 
 
 def _timestamp() -> str:
-    """生成 UTC ISO8601 时间戳。"""
-    return datetime.now(timezone.utc).isoformat()
+    """生成北京时间字符串时间戳。"""
+    return datetime.now(BEIJING_TZ).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def create_session_id() -> str:
+    """生成北京时间会话编号。"""
+    return datetime.now(BEIJING_TZ).strftime("%Y%m%d_%H%M%S")
+
+
+def _session_log_dir(profile: RuntimeProfile, session_id: str) -> Path:
+    """返回当前会话日志目录。"""
+    return Path(profile.storage.log_dir) / f"session_{session_id}"
 
 
 def log_tool_call(
     profile: RuntimeProfile,
+    session_id: str,
     tool_name: str,
     arguments: Any,
     result: dict[str, Any],
@@ -40,12 +53,17 @@ def log_tool_call(
         "result": result,
     }
     try:
-        append_jsonl(profile.storage.log_dir, "tool_calls.jsonl", event)
+        append_jsonl(str(_session_log_dir(profile, session_id)), "tool_calls.jsonl", event)
     except OSError:
         pass
 
 
-def log_agent_message(profile: RuntimeProfile, role: str, content: str) -> None:
+def log_agent_message(
+    profile: RuntimeProfile,
+    session_id: str,
+    role: str,
+    content: str,
+) -> None:
     """记录一次 agent 消息。"""
     event = {
         "timestamp": _timestamp(),
@@ -55,6 +73,6 @@ def log_agent_message(profile: RuntimeProfile, role: str, content: str) -> None:
         "content": content,
     }
     try:
-        append_jsonl(profile.storage.log_dir, "agent_messages.jsonl", event)
+        append_jsonl(str(_session_log_dir(profile, session_id)), "agent_messages.jsonl", event)
     except OSError:
         pass

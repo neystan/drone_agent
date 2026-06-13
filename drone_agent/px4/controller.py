@@ -113,6 +113,7 @@ class Px4Controller(Node):
 
         self.timer = self.create_timer(self.timer_period, self.timer_callback)
 
+    #订阅回调函数
     def vehicle_local_position_callback(self, msg: VehicleLocalPosition) -> None:
         """更新本地位置缓存。"""
         self.vehicle_local_position = msg
@@ -132,6 +133,7 @@ class Px4Controller(Node):
         except Exception as exc:
             self.get_logger().error(f"Failed to convert RGB image: {exc}")
 
+    #发布消息函数
     def timestamp_us(self) -> int:
         """返回当前 ROS 时钟的微秒时间戳。"""
         return int(self.get_clock().now().nanoseconds / 1000)
@@ -180,6 +182,7 @@ class Px4Controller(Node):
         msg.timestamp = self.timestamp_us()
         self.vehicle_command_publisher.publish(msg)
 
+    #机体转NED
     def body_to_ned(
         self,
         forward: float,
@@ -194,6 +197,7 @@ class Px4Controller(Node):
         """代理角度归一化工具。"""
         return normalize_angle(angle)
 
+    #控制基础实现
     def send_offboard_mode_command(self) -> None:
         """请求切换到 PX4 offboard 模式。"""
         self.publish_vehicle_command(
