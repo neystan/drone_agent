@@ -13,6 +13,7 @@ setup(
     name=package_name,
     version="0.1.0",
     packages=find_packages(exclude=["tests", "tests.*"]),
+    scripts=["scripts/camera_view_sim"],
     data_files=[
         (
             "share/ament_index/resource_index/packages",
@@ -20,8 +21,6 @@ setup(
         ),
         (f"share/{package_name}", ["package.xml"]),
         (os.path.join("share", package_name, "launch"), glob("launch/*")),
-        (os.path.join("share", package_name, "rviz"), glob("rviz/*")),
-        ("bin", ["scripts/drone_agent_sim", "scripts/drone_agent_real"]),
     ],
     package_data={
         "drone_agent.config": ["profiles/*.yaml"],
@@ -41,7 +40,6 @@ setup(
         "console_scripts": [
             "drone_agent_sim = drone_agent.cli:main_sim",
             "drone_agent_real = drone_agent.cli:main_real",
-            "camera_view_sim = drone_agent.camera_view_sim:main",
         ],
     },
 )
