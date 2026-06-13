@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass
+from typing import Any
 
 from drone_agent.config.loader import load_profile
 from drone_agent.logging.task_log import log_agent_message
@@ -44,7 +45,7 @@ def _start_live_runtime(profile) -> None:
     import rclpy
     from rclpy.executors import SingleThreadedExecutor
 
-    from drone_agent.core.agent_loop import run_interactive_agent
+    from drone_agent.core.agent_loop import agent_loop
     from drone_agent.px4.controller import Px4Controller
 
     rclpy.init()
@@ -64,7 +65,7 @@ def _start_live_runtime(profile) -> None:
 
         executor_thread.start()
         log_agent_message(profile, "system", SYSTEM_PROMPT)
-        run_interactive_agent(client, profile.llm.model, context)
+        _run_interactive_loop(client, profile.llm.model, context, agent_loop)
     finally:
         executor.shutdown()
         if controller is not None:
@@ -73,3 +74,33 @@ def _start_live_runtime(profile) -> None:
             rclpy.shutdown()
         if executor_thread is not None:
             executor_thread.join(timeout=1.0)
+
+
+def _configure_readline() -> None:
+    """配置终端输入行为，避免中文编辑异常。"""
+    try:
+        import readline
+    except ImportError:
+        return
+
+    readline.parse_and_bind("set bind-tty-special-chars off")
+    readline.parse_and_bind("set input-meta on")
+    readline.parse_and_bind("set output-meta on")
+    readline.parse_and_bind("set convert-meta off")
+
+
+def _run_interactive_loop(client: Any, model: str, context: ToolContext, loop_fn: Any) -> None:
+    """运行命令行交互循环，并把每轮输入交给 agent loop。"""
+    _configure_readline()
+    messages: list[dict[str, Any]] = [{"role": "system", "content": SYSTEM_PROMPT}]
+    print("输入自然语言与 agent 对话，输入 exit 退出。")
+
+    while True:
+        user_input = input("you> ").strip()
+        if not user_input:
+            continue
+        if user_input.lower() in {"exit", "quit"}:
+            break
+        messages.append({"role": "user", "content": user_input})
+        log_agent_message(context.profile, "user", user_input)
+        loop_fn(client, model, messages, context)

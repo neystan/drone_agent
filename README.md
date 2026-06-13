@@ -18,10 +18,11 @@
 ## 模型配置
 
 ```bash
-cp settings.example.json settings.json
+mkdir -p ~/.config/drone_agent
+cp settings.example.json ~/.config/drone_agent/settings.json
 ```
 
-然后在 `settings.json` 里填写模型配置：
+然后在 `~/.config/drone_agent/settings.json` 里填写模型配置：
 
 ```json
 {
@@ -39,8 +40,9 @@ cp settings.example.json settings.json
 }
 ```
 
-`settings.example.json` 会提交到仓库，`settings.json` 只保留在本地。
+`settings.example.json` 会提交到仓库，实际运行默认读取 `~/.config/drone_agent/settings.json`。
 `base_url` 和 `model` 也由你自己填写，项目不再提供 provider 默认值。
+如果需要自定义位置，也可以通过环境变量 `DRONE_AGENT_SETTINGS` 覆盖默认路径。
 
 ## 作为 ROS2 包使用
 

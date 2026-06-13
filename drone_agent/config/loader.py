@@ -24,9 +24,8 @@ class ConfigError(RuntimeError):
 
 
 DEFAULT_PROFILE_DIR = Path(__file__).resolve().parent / "profiles"
-PACKAGE_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_SETTINGS_PATH = PACKAGE_ROOT / "settings.json"
-DEFAULT_SETTINGS_EXAMPLE_PATH = PACKAGE_ROOT / "settings.example.json"
+DEFAULT_SETTINGS_DIR = Path.home() / ".config" / "drone_agent"
+DEFAULT_SETTINGS_PATH = DEFAULT_SETTINGS_DIR / "settings.json"
 SETTINGS_ENV_VAR = "DRONE_AGENT_SETTINGS"
 
 
@@ -65,7 +64,7 @@ def _load_settings(settings_path: Path) -> dict[str, Any]:
     if not settings_path.exists():
         raise ConfigError(
             f"settings file not found: {settings_path}. "
-            f"copy {DEFAULT_SETTINGS_EXAMPLE_PATH.name} to settings.json first"
+            f"create this file or set {SETTINGS_ENV_VAR} to override the default path"
         )
 
     try:
@@ -80,32 +79,13 @@ def _load_settings(settings_path: Path) -> dict[str, Any]:
 
 
 def resolve_settings_path(settings_path: Path | None = None) -> Path:
-    """Resolve the runtime settings file across source and installed layouts."""
+    """寻找 settings.json 的路径"""
     if settings_path is not None:
         return settings_path
 
     env_path = os.environ.get(SETTINGS_ENV_VAR, "").strip()
     if env_path:
         return Path(env_path).expanduser().resolve()
-
-    candidates: list[Path] = []
-
-    cwd = Path.cwd().resolve()
-    for base in [cwd, *cwd.parents]:
-        candidates.append(base / "settings.json")
-        candidates.append(base / "src" / "drone_agent" / "settings.json")
-
-    for base in [PACKAGE_ROOT, *PACKAGE_ROOT.parents]:
-        candidates.append(base / "settings.json")
-        candidates.append(base / "src" / "drone_agent" / "settings.json")
-
-    seen: set[Path] = set()
-    for candidate in candidates:
-        if candidate in seen:
-            continue
-        seen.add(candidate)
-        if candidate.exists():
-            return candidate
 
     return DEFAULT_SETTINGS_PATH
 
