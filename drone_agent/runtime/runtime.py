@@ -45,7 +45,7 @@ def _start_live_runtime(profile) -> None:
     import rclpy
     from rclpy.executors import SingleThreadedExecutor
 
-    from drone_agent.core.agent_loop import agent_loop
+    from drone_agent.runtime.agent_loop import agent_loop
     from drone_agent.px4.controller import Px4Controller
 
     rclpy.init()
@@ -88,7 +88,7 @@ def _configure_readline() -> None:
     readline.parse_and_bind("set convert-meta off")
 
 
-def _run_interactive_loop(client: Any, model: str, context: ToolContext, loop_fn: Any) -> None:
+def _run_interactive_loop(client: Any, model: str, context: ToolContext, agent_loop: Any) -> None:
     """运行命令行交互循环，并把每轮输入交给 agent loop。"""
     _configure_readline()
     messages: list[dict[str, Any]] = [{"role": "system", "content": SYSTEM_PROMPT}]
@@ -102,4 +102,4 @@ def _run_interactive_loop(client: Any, model: str, context: ToolContext, loop_fn
             break
         messages.append({"role": "user", "content": user_input})
         log_agent_message(context.profile, context.session_id, "user", user_input)
-        loop_fn(client, model, messages, context)
+        agent_loop(client, model, messages, context)

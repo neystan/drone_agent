@@ -80,17 +80,17 @@
 - `settings.json` 负责模型配置：`api_key`、`base_url`、`model`
 - `sim.yaml/real.yaml` 只负责飞控与运行环境配置
 
-### 4.3 `drone_agent/core/`
+### 4.3 `drone_agent/runtime/`
 
 职责：连接 LLM、工具系统和 ROS2 运行时。
 
 | 路径 | 作用 |
 | --- | --- |
-| `drone_agent/core/__init__.py` | 核心运行时子包标记文件。 |
-| `drone_agent/core/agent_loop.py` | 交互式 Agent 对话循环，负责读取用户输入、调用 LLM、执行工具调用、处理中断条件。 |
-| `drone_agent/core/runtime.py` | 运行总控。负责加载 profile、创建 ROS2 executor、创建 `Px4Controller`、创建 LLM client 并启动 agent loop。 |
-| `drone_agent/core/safety.py` | Agent 侧安全判定逻辑，例如飞行工具是否需要 Y/N 人工确认，以及哪些结果会直接结束当前轮。 |
-| `drone_agent/core/tool_dispatcher.py` | 工具分发层。把模型输出的 tool call 解析后路由到具体工具处理函数。 |
+| `drone_agent/runtime/__init__.py` | 运行时子包标记文件。 |
+| `drone_agent/runtime/agent_loop.py` | 单轮 Agent 对话循环，负责调用 LLM、执行工具调用、处理中断条件。 |
+| `drone_agent/runtime/runtime.py` | 运行总控。负责加载 profile、创建 ROS2 executor、创建 `Px4Controller`、创建 LLM client 并启动交互 loop。 |
+| `drone_agent/runtime/safety.py` | Agent 侧安全判定逻辑，例如飞行工具是否需要 Y/N 人工确认，以及哪些结果会直接结束当前轮。 |
+| `drone_agent/runtime/tool_dispatcher.py` | 工具分发层。把模型输出的 tool call 解析后路由到具体工具处理函数。 |
 
 ### 4.4 `drone_agent/llm/`
 
@@ -222,7 +222,7 @@
 1. `README.md`
 2. `settings.example.json`
 3. `drone_agent/cli.py`
-4. `drone_agent/core/runtime.py`
+4. `drone_agent/runtime/runtime.py`
 5. `drone_agent/config/loader.py`
 6. `drone_agent/px4/controller.py`
 7. `drone_agent/tools/registry.py`

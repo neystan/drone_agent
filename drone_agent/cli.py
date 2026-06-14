@@ -5,7 +5,7 @@ import sys
 from collections.abc import Sequence
 
 from drone_agent.config.loader import ConfigError
-from drone_agent.core.runtime import start_runtime
+from drone_agent.runtime.runtime import start_runtime
 
 
 def build_parser(default_profile: str = "sim") -> argparse.ArgumentParser:

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from drone_agent.core.safety import (
+from drone_agent.runtime.safety import (
     EndCurrentTurn,
     confirm_flight_tool,
     requires_human_in_the_loop,

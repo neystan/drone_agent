@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from drone_agent.config.schema import RuntimeProfile
+from drone_agent.vision.prompts import VLM_SYSTEM_PROMPT
 
 
 ANALYZE_VIEW_ACTIONS = {
@@ -23,7 +24,7 @@ ANALYZE_VIEW_POSITIONS = {"left", "right", "center", "upper", "lower", "none"}
 
 
 def create_vlm_client(profile: RuntimeProfile) -> Any:
-    """根据 profile 创建视觉模型客户端。"""
+    """根据 profile 创建视觉模型client。"""
     from openai import OpenAI
 
     return OpenAI(
@@ -186,7 +187,7 @@ def call_vlm(profile: RuntimeProfile, image_path: Path, prompt: str) -> dict:
         messages=[
             {
                 "role": "system",
-                "content": "你是无人机视觉分析器。必须只返回严格 JSON，不要输出 Markdown，不要输出代码块。",
+                "content": VLM_SYSTEM_PROMPT,
             },
             {
                 "role": "user",

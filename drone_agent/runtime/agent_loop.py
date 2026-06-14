@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from drone_agent.core.safety import EndCurrentTurn
-from drone_agent.core.tool_dispatcher import dispatch_tool_call
+from drone_agent.runtime.safety import EndCurrentTurn
+from drone_agent.runtime.tool_dispatcher import dispatch_tool_call
 from drone_agent.logging.task_log import log_agent_message
 from drone_agent.tools.registry import ToolContext, get_tool_schemas
 
