@@ -1,6 +1,6 @@
 # drone_agent 当前实现规格说明
 
-日期：2026-06-14
+日期：2026-06-15
 
 ## 1. 文档定位
 
@@ -28,8 +28,10 @@
 用户终端
   -> drone_agent_sim / drone_agent_real
   -> runtime.runtime.start_runtime()
+  -> 创建 TaskState 实例
   -> runtime.agent_loop.agent_loop()
   -> runtime.tool_dispatcher.dispatch_tool_call()
+  -> TaskState 状态转移（thinking / tool_running / tool_completed / interrupted）
   -> tools/*
   -> px4.controller.Px4Controller
   -> ROS2 rclpy + px4_msgs
@@ -69,6 +71,7 @@ ros2 run drone_agent drone_agent_real
 ```text
 drone_agent/
   package.xml
+  pyproject.toml
   setup.py
   setup.cfg
   README.md
@@ -79,6 +82,11 @@ drone_agent/
   docs/
     legacy_specs/
     PROJECT_ARCHITECTURE.md
+    PHASE_1_skeleton-config.md
+    PHASE_2_px4-control-layer.md
+    PHASE_3_tools-agent-loop.md
+    PHASE_4_vision-safety-runtime.md
+    PHASE_5_TASK_STATE_DESIGN.md
 
   drone_agent/
     __init__.py
@@ -116,6 +124,7 @@ drone_agent/
       agent_loop.py
       safety.py
       tool_dispatcher.py
+      task_state.py
 
     tools/
       __init__.py
@@ -140,6 +149,10 @@ drone_agent/
 
 定义 ROS2 包元数据和依赖。
 
+`pyproject.toml`
+
+定义纯 Python 打包方式、依赖声明和 console script 入口，与 `setup.py` 并存。`pyproject.toml` 是现代 Python 打包推荐方式，`setup.py` 是 ROS2 `ament_python` 兼容所需。
+
 `setup.py`
 
 定义 Python 包打包方式、ROS2 launch 文件安装，以及两个 console script：
@@ -157,7 +170,13 @@ drone_agent/
 
 `scripts/`
 
-存放 ROS2 辅助脚本，例如 `camera_view_sim`。这些脚本不放在内层 `drone_agent/` 包里。
+存放 ROS2 辅助脚本，包括：
+
+- `camera_view_sim`：相机画面查看脚本
+- `drone_agent_sim`：直接启动仿真模式的命令包装脚本
+- `drone_agent_real`：直接启动真机模式的命令包装脚本
+
+这些脚本不放在内层 `drone_agent/` 包里。其中 `drone_agent_sim` 和 `drone_agent_real` 是独立的 Python 包装脚本，与 `setup.py` 中通过 `console_scripts` 定义的入口功能相同，但可以直接作为脚本文件执行。
 
 ### 6.2 内层 Python 包
 
@@ -249,13 +268,18 @@ DRONE_AGENT_SETTINGS
 
 负责：
 
-- 加载 profile
+- 提供 `prepare_runtime(profile_name)` 函数：只加载并校验 profile，不启动 ROS2，返回 `RuntimeStartResult` 数据类，供测试和诊断使用
+- 提供 `RuntimeStartResult` 数据类：保存 profile 解析后的运行时摘要（`profile_name`、`mode`、`node_name`、`ros_started`）
+- 提供 `start_runtime(profile_name)` 函数：加载 profile 并直接启动真实 ROS2 运行时
 - 初始化 ROS2
 - 创建 `Px4Controller`
 - 创建 LLM client
-- 创建 `ToolContext`
+- 创建 `TaskState` 实例
+- 创建 `ToolContext`（含 `task_state`）
 - 生成 `session_id`
 - 启动交互式命令循环
+- 每轮用户输入后调用 `task_state.start_new_goal()`
+- 每轮 agent loop 前后打印并记录任务状态
 - 配置 readline，修复中文输入删除问题
 - 退出时关闭 executor 和 ROS2
 
@@ -268,6 +292,8 @@ DRONE_AGENT_SETTINGS
 - 调用 dispatcher
 - 把 tool result 追加回 messages
 - 得到最终 assistant 回复
+- 在每轮 LLM 调用前后更新 `TaskState`（`set_thinking` / `set_idle`）
+- 打印并记录任务状态到日志
 
 它不再负责终端输入循环。
 
@@ -281,6 +307,46 @@ DRONE_AGENT_SETTINGS
 - 调用具体工具函数
 - 记录工具调用日志
 - 在超时等硬中断场景结束当前轮
+- 通过 `_update_task_state()` 在工具生命周期各阶段同步更新 `TaskState`：
+  - `waiting_for_confirmation`：等待人工确认
+  - `tool_running`：工具执行中
+  - `tool_finished`：工具完成
+  - `interrupted`：被中断
+
+`task_state.py`
+
+定义当前会话的最小运行时任务状态 `TaskState`。
+
+核心字段：
+
+- `task_id`：会话 ID
+- `current_user_goal`：当前用户目标
+- `current_phase`：执行阶段（`idle` / `thinking` / `tool_running` / `tool_completed` / `tool_failed` / `interrupted` / `waiting_for_confirmation`）
+- `active_tool_name`：当前正在执行的工具名
+- `active_tool_arguments`：当前工具参数
+- `active_tool_is_flight_tool`：当前工具是否为飞行控制工具
+- `active_agent_name`：当前 agent 名称（默认 `drone_agent`）
+- `waiting_for_user_confirmation`：是否正在等待人工确认
+- `intervention_pending`：是否有待处理的用户介入
+- `intervention_message`：介入消息内容
+- `last_tool_name`：上一个执行的工具名
+- `last_tool_result`：上一个工具的执行结果
+- `last_error`：上一个错误信息
+
+状态转移方法：
+
+- `start_new_goal(user_input)`：用户输入新任务后刷新状态
+- `set_thinking()`：标记进入模型思考阶段
+- `set_idle()`：标记回到空闲状态
+- `set_waiting_for_confirmation(tool_name, arguments, is_flight_tool)`：标记等待人工确认
+- `start_tool(tool_name, arguments, is_flight_tool)`：标记工具开始执行
+- `finish_tool(tool_name, result)`：根据工具结果更新成功或失败
+- `interrupt(tool_name, result)`：标记因拒绝、超时等原因被中断
+- `snapshot()`：导出当前状态快照，供日志记录使用
+
+终端输出：
+
+- `format_task_state_line()`：格式化带颜色的终端状态行，绿色显示当前阶段、活跃工具名、是否飞行工具、是否等待确认、错误信息
 
 `safety.py`
 
@@ -353,6 +419,7 @@ DRONE_AGENT_SETTINGS
 - `controller`
 - `profile`
 - `session_id`
+- `task_state`（`TaskState | None`，可选）
 
 `schemas.py`
 
@@ -433,10 +500,21 @@ DRONE_AGENT_SETTINGS
 
 `task_log.py`
 
-负责记录两类 JSONL 日志：
+负责记录三类 JSONL 日志：
 
-- `agent_messages.jsonl`
-- `tool_calls.jsonl`
+- `agent_messages.jsonl`：Agent 对话消息
+- `tool_calls.jsonl`：工具调用及其结果
+- `task_state.jsonl`：任务状态快照
+
+新增 `log_task_state()` 函数，每次 `TaskState` 状态转移时记录快照，包含：
+
+- `timestamp`
+- `profile_name`
+- `event_type: "task_state"`
+- `task_id`、`current_phase`、`current_user_goal`
+- `active_tool_name`、`active_tool_is_flight_tool`
+- `waiting_for_user_confirmation`、`intervention_pending`
+- `last_tool_name`、`last_error`
 
 当前日志目录按会话拆分，结构是：
 
@@ -445,6 +523,7 @@ DRONE_AGENT_SETTINGS
   session_20260613_210501/
     agent_messages.jsonl
     tool_calls.jsonl
+    task_state.jsonl
 ```
 
 时间戳使用东八区北京时间字符串，例如：
@@ -573,6 +652,8 @@ DRONE_AGENT_SETTINGS
 - 没有 `logging/flight_log.py`
 - 没有 `runtime/types.py`
 - 没有高层 `skills/` 复合能力层
+- 没有 `MessageBus` 和语言介入机制
+- 没有异步 multi-agent 架构
 
 这些都不是遗漏，而是当前版本尚未引入。
 
@@ -723,57 +804,57 @@ safety:
 - 用户介入时立即 hover。
 - 手动接管或遥控器优先级高于 Agent。
 
-### 11.3 运行时任务状态
+### 11.3 运行时任务状态（Phase 5 已完成）
 
-当前项目已经有：
+**当前状态：已实现。**
 
-- `messages`：当前进程内的 LLM 对话上下文。
-- 会话日志：`agent_messages.jsonl` 和 `tool_calls.jsonl`。
-- `ToolContext`：包含 `controller`、`profile`、`session_id`。
+`runtime/task_state.py` 已落地，包含以下能力：
 
-当前阶段不规划长期记忆模块，也不强调历史任务恢复。
+已实现字段：
 
-后续更需要的是“运行时任务状态”，用于支持用户介入和 multi-agent 协作。
+- `task_id`：会话 ID
+- `current_user_goal`：当前用户目标
+- `current_phase`：执行阶段
+- `active_tool_name`：当前活跃工具名
+- `active_tool_arguments`：当前工具参数
+- `active_tool_is_flight_tool`：是否飞行控制工具
+- `active_agent_name`：当前 agent 名称
+- `waiting_for_user_confirmation`：是否等待人工确认
+- `intervention_pending`：是否有待处理介入
+- `intervention_message`：介入消息内容
+- `last_tool_name`：上一个工具名
+- `last_tool_result`：上一个工具结果
+- `last_error`：上一个错误信息
 
-建议新增：
+已实现状态转移方法：
 
-```text
-drone_agent/
-  runtime/
-    task_state.py
-```
+- `start_new_goal()`
+- `set_thinking()`
+- `set_idle()`
+- `set_waiting_for_confirmation()`
+- `start_tool()`
+- `finish_tool()`
+- `interrupt()`
+- `snapshot()`
 
-`TaskState` 可以包含：
+已实现终端输出：
 
-- `task_id`
-- `current_user_goal`
-- `current_phase`
-- `active_tool_name`
-- `active_agent_name`
-- `active_flight_action`
-- `last_tool_result`
-- `last_vision_summary`
-- `last_motor_summary`
-- `intervention_pending`
-- `intervention_message`
+- `format_task_state_line()`：带颜色的终端状态行
 
-它的目的不是恢复很久以前的任务，而是回答当前运行中的几个关键问题：
+已实现日志集成：
 
-- Agent 现在是否正在执行工具。
-- 当前执行的是否是飞行控制相关工具。
-- 当前飞行动作是什么。
-- 是否有用户介入消息等待处理。
-- MotorAgent / VisionAgent 最近返回了什么有效摘要。
-- Planner 是否可以继续分派下一步任务。
+- `task_log.log_task_state()`：每次状态转移记录到 `task_state.jsonl`
 
-这些状态后续也应该在 CLI 或 Web 界面中可见。用户应该能看到：
+集成点：
 
-- PlannerAgent 生成的任务计划。
-- 哪些任务被分配给 VisionAgent。
-- 哪些任务被分配给 MotorAgent。
-- 当前每个任务的执行状态。
-- 每个 agent 返回的精简结果摘要。
-- 当前是否等待用户确认或介入处理。
+- `runtime.py`：创建 `TaskState` 实例，传入 `ToolContext`
+- `agent_loop.py`：每轮 LLM 调用前后更新状态
+- `tool_dispatcher.py`：工具生命周期各阶段同步更新状态
+
+后续扩展方向（当前未实现）：
+
+- 多 agent 场景下的 `active_agent_name`、`active_flight_action`、`last_vision_summary`、`last_motor_summary` 等字段。
+- CLI 或 Web 界面中实时展示任务状态。
 
 ### 11.4 MessageBus 与语言介入
 
@@ -889,40 +970,35 @@ CLI 或 Web 界面后续应展示 Planner 的计划和分派情况。最小可�
 后续实现应收敛为 5 个大方向，并按下面顺序推进：
 
 ```text
-TaskState -> 语言介入 -> 安全门 -> Skills -> Multi-Agent
+✅ TaskState（已完成） -> 语言介入 -> 安全门 -> Skills -> Multi-Agent
 ```
 
 这个顺序的判断依据是：先让系统知道自己正在做什么，再让用户可以随时介入，然后补真机安全边界，最后再做自进化能力和多 agent 协作。无人机 Agent 的核心风险不是能力不足，而是执行过程不可观测、不可打断、不可解释。
 
-#### Phase 5：TaskState
+#### Phase 5：TaskState（已完成）
 
-目标：建立最小运行时任务状态，让当前同步架构具备可观测基础。
+**当前状态：已完成，详见 `runtime/task_state.py`。**
 
-范围：
+完成内容：
 
-- 记录当前用户目标。
-- 记录当前正在执行的工具。
-- 标记当前工具是否属于飞行控制工具。
-- 记录工具执行状态：`idle`、`running`、`completed`、`failed`、`interrupted`。
-- 记录最近一次工具结果。
-- 记录是否等待用户确认。
-- 记录是否存在用户介入消息。
+- ✅ 记录当前用户目标。
+- ✅ 记录当前正在执行的工具。
+- ✅ 标记当前工具是否属于飞行控制工具。
+- ✅ 记录工具执行状态：`idle`、`thinking`、`tool_running`、`tool_completed`、`tool_failed`、`interrupted`、`waiting_for_confirmation`。
+- ✅ 记录最近一次工具结果。
+- ✅ 记录是否等待用户确认。
+- ✅ 记录是否存在用户介入消息。
+- ✅ 终端彩色状态输出。
+- ✅ 日志持久化到 `task_state.jsonl`。
+- ✅ 集成到 `runtime.py`、`agent_loop.py`、`tool_dispatcher.py`。
 
-建议先不要做：
+设计文档：`docs/PHASE_5_TASK_STATE_DESIGN.md`
 
-- 长期记忆。
-- 历史任务恢复。
-- 复杂任务数据库。
-
-验收标准：
-
-- CLI 或日志中能看到当前任务状态。
-- 任意工具执行前后都会更新 `TaskState`。
-- 后续语言介入、安全门、multi-agent 都能复用同一个状态对象。
-
-#### Phase 6：语言介入
+#### Phase 6：语言介入（下一阶段）
 
 目标：解决 Agent 执行工具期间用户无法打断的问题。
+
+前置依赖：Phase 5 TaskState 已完成，`intervention_pending` 字段已就绪。
 
 范围：
 
