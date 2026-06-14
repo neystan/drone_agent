@@ -1,583 +1,1014 @@
-# drone_agent 架构规划文档
+# drone_agent 当前实现规格说明
 
-日期：2026-06-09
+日期：2026-06-14
 
-## 1. 项目目标
+## 1. 文档定位
 
-`drone_agent` 是一个使用自然语言控制无人机执行任务的 Agent。用户通过 CLI 输入中文或英文任务，Agent 通过 OpenAI 兼容的 Function Calling 选择工具，工具层再通过 ROS2 `rclpy` 和 `px4_msgs` DDS topic 控制 PX4 无人机。
+这份文档描述的是 `/download/drone_agent` **当前已经落地的真实实现**，不是最初的目标态草案。
 
-这份文档以 `/download/takeoff.py` 的当前实现作为事实基线。下一阶段的重点不是继续堆新能力，而是把已经验证过的单文件原型整理成一个边界清晰、配置可切换、安全契约明确、后续可持续扩展的 Python 项目。
+后续如果继续做架构演进、能力扩展或重构规划，应以这份文档作为基线，再在其上新增新的设计文档，而不是继续参考已经失真的旧版本描述。
 
-## 2. 当前实现基线
+## 2. 项目目标
 
-当前 `/download/takeoff.py` 已经实现了以下能力：
+`drone_agent` 是一个基于自然语言的无人机控制 Agent。
 
-- 基于 `rclpy.node.Node` 的 ROS2 节点。
-- PX4 DDS 发布：Offboard 心跳、轨迹 setpoint、VehicleCommand。
-- PX4 DDS 订阅：本地位置、飞行状态、电池状态、相机图像。
-- OpenAI 兼容 Chat Completion + Function Calling 循环。
-- 飞行动作工具：`takeoff`、`land`、`disarm`、`hover`、`return_home`、`rotate`、`move`。
-- 状态查询工具：`current_position_status`、`battery_status`、`flight_mode_status`、`timer`。
-- 感知工具：`take_photo`、`analyze_view`。
-- OpenAI 兼容视觉模型接口，用于图像理解和目标搜索建议。
-- 超时后切换 hover，并通过 `requires_user_confirmation` 显式要求用户确认。
+当前主线能力是：
 
-当前实现也存在需要工程化处理的问题：
+- 用户在终端输入自然语言。
+- LLM 通过 OpenAI 兼容 Function Calling 选择工具。
+- 工具通过 ROS2 `rclpy` + `px4_msgs` + PX4 uXRCE-DDS 控制 PX4 无人机。
+- 同一套核心控制逻辑同时支持仿真和真机。
+- 相机图像可用于拍照和 VLM 画面分析。
 
-- API key、模型名、base URL 直接硬编码在脚本里。
-- ROS2 控制、工具 schema、工具执行、prompt、相机处理、VLM 调用、CLI runtime 混在一个文件中。
-- 仿真和真机差异没有通过配置隔离。
-- 工具分发是长串 `if call.function.name == ...`。
-- 安全策略分散在具体工具函数里，没有统一的安全策略层。
+## 3. 当前技术路线
 
-## 3. 核心架构决策
-
-### 3.1 主控技术路线
-
-MVP 主控链路固定为：
+当前主控链路是：
 
 ```text
-CLI -> Agent Loop -> Tools -> Px4Controller -> ROS2 rclpy + px4_msgs -> PX4 uXRCE-DDS
+用户终端
+  -> drone_agent_sim / drone_agent_real
+  -> runtime.runtime.start_runtime()
+  -> runtime.agent_loop.agent_loop()
+  -> runtime.tool_dispatcher.dispatch_tool_call()
+  -> tools/*
+  -> px4.controller.Px4Controller
+  -> ROS2 rclpy + px4_msgs
+  -> PX4 uXRCE-DDS
 ```
 
-当前 MVP 不把 MAVSDK 作为主控路径。MAVSDK 可以作为未来适配器候选，但不进入当前主线实施计划。
+当前项目同时具备两种工程身份：
 
-### 3.2 仿真与真机
+- GitHub 主仓
+- ROS2 `ament_python` 包源码目录
 
-仿真和真机使用同一套核心控制代码。
+## 4. 运行模式
 
-`sim` 和 `real` 的差异通过 runtime profile 表达，包括：
-
-- ROS 节点名。
-- 相机 topic。
-- 图片保存路径。
-- 日志路径。
-- 安全限制。
-- 默认人工确认策略。
-- 是否启用感知工具。
-- LLM / VLM provider 配置。
-
-项目提供两个快捷命令和一个通用命令：
+当前对外保留的主入口只有两个：
 
 ```bash
 drone_agent_sim
 drone_agent_real
-drone_agent --profile sim
-drone_agent --profile real
 ```
 
-`drone_agent_sim` 和 `drone_agent_real` 只是 profile 快捷入口，必须调用同一个 runtime，不允许复制一套仿真控制逻辑和一套真机控制逻辑。
+ROS2 工作区下也可以这样启动：
 
-### 3.3 工具层命名
+```bash
+ros2 run drone_agent drone_agent_sim
+ros2 run drone_agent drone_agent_real
+```
 
-暴露给 LLM Function Calling 的能力统一叫 `tools`，不叫 `skills`。
+其中：
 
-原因是后续可以把 `skills` 留给更高层的复合技能，例如：
+- `drone_agent_sim` 固定加载 `sim` profile
+- `drone_agent_real` 固定加载 `real` profile
 
-- 搜索目标并靠近。
-- 巡检指定区域并拍照。
-- 按航线执行检查。
-- 完成视觉任务后自动返航和降落。
+虽然 `cli.py` 内部仍保留了 `--profile` 解析器，但当前公开使用方式就是这两个入口，不再以通用 `drone_agent --profile ...` 作为主使用方式。
 
-因此，本项目中：
-
-- `tools/` 表示 LLM 可以直接调用的原子工具。
-- 未来的 `skills/` 可以表示由多个 tools 组合出来的高级任务能力。
-
-## 4. 技术栈
-
-- 语言：Python。
-- ROS 运行时：ROS2 `rclpy`。
-- PX4 消息包：`px4_msgs`。
-- PX4 通信：uXRCE-DDS。
-- 图像消息：ROS2 `sensor_msgs.msg.Image`。
-- 图像转换：`cv_bridge` + OpenCV。
-- LLM：OpenAI 兼容 Chat Completions API。
-- 当前文本模型兼容方向：DeepSeek 兼容 endpoint。
-- VLM：OpenAI 兼容视觉模型接口。
-- 当前视觉模型兼容方向：Qwen VL 兼容 endpoint。
-- 配置：YAML profiles + 环境变量保存密钥。
-- 运行界面：CLI 优先。
-
-MVP 阶段暂不优先做：
-
-- Web UI。
-- 多机协同。
-- MAVSDK 主控。
-- AirSim 相机发布逻辑。
-- 复杂自主任务规划器。
-- 完整插件市场或技能系统。
-
-## 5. 目标项目结构
+## 5. 当前目录结构
 
 ```text
 drone_agent/
-  pyproject.toml
+  package.xml
+  setup.py
+  setup.cfg
   README.md
-  DRONE_AGENT_SPEC.md
+  settings.example.json
+  launch/
+  resource/
+  scripts/
+  docs/
+    legacy_specs/
+    PROJECT_ARCHITECTURE.md
 
   drone_agent/
+    __init__.py
     __main__.py
     cli.py
 
     config/
-      profiles/
-        sim.yaml
-        real.yaml
+      __init__.py
       loader.py
       schema.py
-
-    core/
-      runtime.py
-      agent_loop.py
-      tool_dispatcher.py
-      safety.py
-      types.py
-
-    px4/
-      controller.py
-      topics.py
-      frame.py
-      status.py
-
-    tools/
-      flight.py
-      perception.py
-      status.py
-      schemas.py
-      registry.py
+      profiles/
+        __init__.py
+        sim.yaml
+        real.yaml
 
     llm/
+      __init__.py
       client.py
       prompts.py
 
-    vision/
-      camera.py
-      vlm.py
-      image_store.py
-
     logging/
-      flight_log.py
+      __init__.py
       task_log.py
 
-  tests/
-    unit/
-    integration/
+    px4/
+      __init__.py
+      controller.py
+      frame.py
+      status.py
+      topics.py
+
+    runtime/
+      __init__.py
+      runtime.py
+      agent_loop.py
+      safety.py
+      tool_dispatcher.py
+
+    tools/
+      __init__.py
+      flight.py
+      perception.py
+      registry.py
+      schemas.py
+      status.py
+
+    vision/
+      __init__.py
+      image_store.py
+      prompts.py
+      vlm.py
 ```
 
-## 6. 文件职责说明
+## 6. 各层职责
 
-### 6.1 项目根目录
+### 6.1 外层 ROS2 包壳
 
-`pyproject.toml`
+`package.xml`
 
-定义项目包名、依赖、Python 版本要求、命令入口。后续应在这里注册 `drone_agent`、`drone_agent_sim`、`drone_agent_real`。
+定义 ROS2 包元数据和依赖。
 
-`README.md`
+`setup.py`
 
-面向使用者的快速启动文档。应说明仿真启动、真机启动、环境变量配置、常见问题和安全提醒。
+定义 Python 包打包方式、ROS2 launch 文件安装，以及两个 console script：
 
-`DRONE_AGENT_SPEC.md`
+- `drone_agent_sim`
+- `drone_agent_real`
 
-本架构规划文档。后续拆分代码、确定阶段任务和验收标准时，以这份文档为主参考。
+同时安装外层脚本：
 
-### 6.2 入口层
+- `scripts/camera_view_sim`
 
-`drone_agent/__main__.py`
+`launch/`
 
-支持 `python -m drone_agent` 启动。它只负责调用 `cli.py`，不包含飞控逻辑、LLM 逻辑或工具逻辑。
+存放 ROS2 launch 文件。它们属于 ROS2 工程接入层，不属于 Agent 本体逻辑。
 
-`drone_agent/cli.py`
+`scripts/`
 
-负责解析命令行参数并启动 runtime。至少支持：
+存放 ROS2 辅助脚本，例如 `camera_view_sim`。这些脚本不放在内层 `drone_agent/` 包里。
 
-- `--profile sim`
-- `--profile real`
-- `--task "<自然语言任务>"`
-- 不传 `--task` 时进入交互模式
+### 6.2 内层 Python 包
 
-它不直接发布 ROS2 消息，也不直接调用 PX4。
+#### `drone_agent/cli.py`
 
-### 6.3 配置层
+负责命令入口到 runtime 的衔接。
 
-`drone_agent/config/profiles/sim.yaml`
+当前主要职责：
 
-仿真 profile。配置仿真 ROS 节点名、AirSim 相机 topic、图片保存路径、日志路径、LLM/VLM provider、安全限制等。
+- 提供 `main_sim()`
+- 提供 `main_real()`
+- 捕获配置错误并输出到 stderr
 
-`drone_agent/config/profiles/real.yaml`
+它不负责 ROS2 初始化，也不负责 Agent 对话循环。
 
-真机 profile。结构与 `sim.yaml` 一致，但可以使用不同相机 topic、更严格的安全限制、真机日志路径和更严格的人工确认策略。
+#### `drone_agent/config/`
 
-`drone_agent/config/loader.py`
+负责 profile 和模型设置加载。
 
-负责读取 YAML profile、解析环境变量、合并默认值，并返回已经校验过的运行时配置对象。配置错误应该在启动阶段暴露，不能等到飞行过程中才报错。
+`schema.py`
 
-`drone_agent/config/schema.py`
+定义当前真实使用的配置结构：
 
-定义 profile 的数据结构和校验规则。必需字段包括 ROS 节点名、topic 配置、存储路径、LLM 配置、VLM 配置和安全限制。
-
-### 6.4 核心运行层
-
-`drone_agent/core/runtime.py`
-
-运行总控。负责完整生命周期：
-
-- 加载 profile。
-- 初始化 ROS2。
-- 创建 `Px4Controller`。
-- 启动 ROS2 executor 线程。
-- 创建 LLM client。
-- 进入交互式 CLI 或执行单次任务。
-- 退出时关闭 executor、销毁 controller、关闭 ROS2。
-
-`drone_agent/core/agent_loop.py`
-
-负责 OpenAI 兼容 Function Calling 循环。它把用户消息发送给模型，接收 tool calls，交给 dispatcher 执行，把工具结果追加回 messages，直到模型返回最终回复。
-
-`drone_agent/core/tool_dispatcher.py`
-
-工具分发器。负责把模型返回的 tool call 路由到注册过的 Python 函数，替代当前 `execute_tool_call()` 中的长 `if` 分支。它也负责 JSON 参数解析和统一的非法参数错误返回。
-
-`drone_agent/core/safety.py`
-
-统一安全策略层。负责根据 profile 限制校验工具参数，处理超时恢复策略，判断是否需要人工确认，并在某个工具返回 `requires_user_confirmation=true` 后阻止后续飞行动作。
-
-`drone_agent/core/types.py`
-
-公共数据类型。建议包含：
-
+- `RosConfig`
+- `StorageConfig`
+- `ProviderConfig`
+- `VlmConfig`
+- `SafetyConfig`
 - `RuntimeProfile`
-- `SafetyLimits`
-- `PositionNED`
-- `ToolResult`
-- `FlightModeStatus`
 
-### 6.5 PX4 层
+`SafetyConfig` 当前字段是：
 
-`drone_agent/px4/controller.py`
+- `human_in_the_loop_for_flight_tools`
+- `max_takeoff_height_m`
+- `max_relative_move_m`
+- `max_vertical_move_m`
+- `max_rotation_deg`
+- `action_timeout_s`
+- `hover_on_timeout`
 
-当前 `Px4Controller` 的目标归宿。它只负责 DDS publisher、DDS subscriber、PX4 command、setpoint 发布和飞控状态缓存。
+`loader.py`
 
-它不应该包含：
+负责从两类来源组装运行时配置：
 
-- 自然语言逻辑。
-- prompt 文本。
-- OpenAI client 创建。
-- tool schemas。
-- VLM 调用。
-- CLI 循环。
+1. profile yaml
+2. `settings.json`
 
-`drone_agent/px4/topics.py`
+当前不再使用环境变量直接注入 LLM/VLM 的 `api_key`、`base_url`、`model`。
 
-集中定义 PX4 topic 名称，例如：
+默认设置文件位置：
 
-- `/fmu/in/offboard_control_mode`
-- `/fmu/in/trajectory_setpoint`
-- `/fmu/in/vehicle_command`
-- `/fmu/out/vehicle_local_position`
-- `/fmu/out/vehicle_status`
-- `/fmu/out/battery_status`
+```text
+~/.config/drone_agent/settings.json
+```
 
-相机 topic 不应写死在这里，因为仿真和真机的相机 topic 由 profile 决定。
+也可以通过环境变量覆盖：
 
-`drone_agent/px4/frame.py`
+```text
+DRONE_AGENT_SETTINGS
+```
 
-坐标系工具。负责 body FRD 到 world NED 的转换，主要服务于相对移动工具。这样可以避免把坐标数学逻辑混在 `move()` 工具里。
+`profiles/sim.yaml` 和 `profiles/real.yaml`
 
-`drone_agent/px4/status.py`
+只负责：
 
-PX4 状态解释工具。负责把 `nav_state`、`arming_state` 等 enum 值转换成人能读懂的名称。
+- ROS 节点名
+- 相机 topic
+- 图片保存目录
+- 日志目录
+- 安全限制
 
-### 6.6 Tools 层
+模型提供方配置已经移出 YAML，不再放在 profile 里。
 
-`drone_agent/tools/flight.py`
+#### `drone_agent/llm/`
 
-暴露给 LLM 的飞行动作工具：
+`client.py`
+
+根据 `RuntimeProfile.llm` 创建 OpenAI 兼容文本模型 client。
+
+`prompts.py`
+
+存放文本 Agent 的系统提示词 `SYSTEM_PROMPT`。
+
+#### `drone_agent/runtime/`
+
+这是当前真正的运行时层，原先的 `core/` 已经重命名为 `runtime/`。
+
+`runtime.py`
+
+负责：
+
+- 加载 profile
+- 初始化 ROS2
+- 创建 `Px4Controller`
+- 创建 LLM client
+- 创建 `ToolContext`
+- 生成 `session_id`
+- 启动交互式命令循环
+- 配置 readline，修复中文输入删除问题
+- 退出时关闭 executor 和 ROS2
+
+`agent_loop.py`
+
+只负责单轮 Agent 循环：
+
+- 把 messages 发给 LLM
+- 接收 tool calls
+- 调用 dispatcher
+- 把 tool result 追加回 messages
+- 得到最终 assistant 回复
+
+它不再负责终端输入循环。
+
+`tool_dispatcher.py`
+
+负责：
+
+- 解析模型返回的工具名和 JSON 参数
+- 做工具存在性检查
+- 执行 human in the loop 硬确认
+- 调用具体工具函数
+- 记录工具调用日志
+- 在超时等硬中断场景结束当前轮
+
+`safety.py`
+
+负责当前 Agent 侧安全规则：
+
+- `FLIGHT_TOOL_NAMES`
+- `requires_human_in_the_loop()`
+- `confirm_flight_tool()`
+- `should_end_turn_after_tool_result()`
+- `EndCurrentTurn`
+
+当前规则是：
+
+- 只要开启 `human_in_the_loop_for_flight_tools`
+- 且工具名属于 `FLIGHT_TOOL_NAMES`
+- 就在工具执行前强制 Y/N 人工确认
+
+输入：
+
+- `Y`：执行工具
+- `N`：立即结束当前轮，把控制权还给用户
+
+此外，当前把 `*_TIMEOUT` 也视为硬中断，工具超时后不会继续让 LLM 串行执行下一步飞行动作。
+
+#### `drone_agent/px4/`
+
+`controller.py`
+
+当前底层 PX4 控制器，直接继承 `rclpy.node.Node`。
+
+负责：
+
+- 创建 PX4 publishers/subscribers
+- 订阅本地位置、飞控状态、电池状态
+- 可选订阅相机 topic
+- 缓存最新 RGB 画面
+- 发布 offboard 心跳
+- 发布 setpoint
+- 发布 vehicle command
+- 维护位置保持、目标航向和目标到达判断
+
+这是直接依赖 ROS2 / px4_msgs 的实现，没有为了测试额外引入依赖注入抽象。
+
+`frame.py`
+
+坐标转换工具，例如 body FRD 到 world NED。
+
+`status.py`
+
+把 PX4 状态枚举整理成可读信息。
+
+`topics.py`
+
+集中定义 PX4 topic 常量。
+
+#### `drone_agent/tools/`
+
+这是暴露给 LLM Function Calling 的工具层。
+
+`registry.py`
+
+定义：
+
+- `ToolContext`
+- `ToolDefinition`
+- 工具名到处理函数的映射
+
+当前 `ToolContext` 包含：
+
+- `controller`
+- `profile`
+- `session_id`
+
+`schemas.py`
+
+集中存放所有工具 schema。
+
+`flight.py`
+
+当前飞行动作工具：
 
 - `takeoff`
 - `land`
 - `disarm`
+- `timer`
 - `hover`
 - `return_home`
 - `rotate`
 - `move`
 
-这些工具依赖 `Px4Controller` 和 `core/safety.py`。它们返回结构化 dict，并保留当前已经确认过的安全字段。
+它们负责动作级业务逻辑和结果结构化返回。
 
-`drone_agent/tools/perception.py`
+当前不再通过工具返回字段让 LLM 判断是否暂停或继续。
 
-暴露给 LLM 的感知工具：
+超时时通常返回：
 
-- `take_photo`
-- `analyze_view`
+- `success: false`
+- `error: *_TIMEOUT`
+- `message`
+- `target_position_ned`
+- `final_position_ned`
 
-该模块使用 `vision/camera.py`、`vision/image_store.py` 和 `vision/vlm.py`。它不关心相机帧来自 AirSim 还是真机硬件；这个差异由 profile 决定。
+然后由 `runtime/tool_dispatcher.py` 决定是否直接结束当前轮。
 
-`drone_agent/tools/status.py`
+`status.py`
 
-暴露给 LLM 的状态查询和轻量辅助工具：
+当前状态工具：
 
 - `current_position_status`
 - `battery_status`
 - `flight_mode_status`
-- `timer`
 
-这个文件叫 `status.py`，不叫 `system.py`，因为它的职责是状态查询和轻量工具，不是系统控制。
+`perception.py`
 
-`drone_agent/tools/schemas.py`
+当前感知工具：
 
-集中存放 OpenAI 兼容 function tool schemas。当前 `TAKEOFF_TOOL_SCHEMA`、`MOVE_TOOL_SCHEMA`、`ANALYZE_VIEW_TOOL_SCHEMA` 等常量后续应迁移到这里。
+- `take_photo`
+- `analyze_view`
 
-`drone_agent/tools/registry.py`
+它依赖当前 controller 缓存的最新 RGB 图像，以及 `vision/` 模块。
 
-工具注册表。负责建立 tool name、schema 和 Python 函数之间的映射，也可以根据 profile 禁用某些工具。例如没有配置相机 topic 时，可以禁用感知工具。
+#### `drone_agent/vision/`
 
-### 6.7 LLM 层
+`image_store.py`
 
-`drone_agent/llm/client.py`
+负责图片落盘：
 
-根据 profile 创建 OpenAI 兼容 client。API key 必须来自环境变量或本地未提交配置，不能写在源码里。
+- 拍照结果保存
+- 分析帧保存
 
-`drone_agent/llm/prompts.py`
+`prompts.py`
 
-存放 system prompt。当前硬编码在 `takeoff.py` 中的 prompt 后续应迁移到这里，并补充 profile-aware 的安全规则。
+存放 VLM 的系统提示词 `VLM_SYSTEM_PROMPT`。
 
-### 6.8 Vision 层
+`vlm.py`
 
-`drone_agent/vision/camera.py`
+负责：
 
-负责相机帧处理。它把 ROS `Image` 消息转换为 OpenCV frame，并缓存最新帧。相机 topic 从 profile 读取。
+- 创建视觉模型 client
+- 构造分析 prompt
+- 本地图像编码为 data URL
+- 调用视觉模型
+- 提取 JSON
+- 归一化目标位置、偏移和置信度
+- 推导视觉建议动作
 
-`drone_agent/vision/vlm.py`
+当前没有单独的 `camera.py` 文件，因为相机图像接收和缓存直接放在 `Px4Controller` 中。
 
-负责 VLM 调用，包括图片编码、视觉 prompt 构造、JSON 提取、结果归一化、置信度归一化、视觉搜索建议动作推导。
+#### `drone_agent/logging/`
 
-`drone_agent/vision/image_store.py`
+`task_log.py`
 
-负责图片和分析帧保存。它生成文件名，确保目录存在，并返回保存路径。
+负责记录两类 JSONL 日志：
 
-### 6.9 日志层
+- `agent_messages.jsonl`
+- `tool_calls.jsonl`
 
-`drone_agent/logging/flight_log.py`
+当前日志目录按会话拆分，结构是：
 
-记录飞行工具调用日志，包括时间、工具名、参数、目标位置、最终位置、安全标记和错误信息。
-
-`drone_agent/logging/task_log.py`
-
-记录 Agent 任务级日志，包括用户输入、模型回复、工具调用序列、工具结果和最终回答。
-
-### 6.10 测试目录
-
-`tests/unit/`
-
-单元测试目录。优先覆盖：
-
-- profile 加载。
-- 配置缺失错误。
-- body FRD 到 world NED 的坐标转换。
-- PX4 enum 名称转换。
-- tool dispatcher 路由。
-- 安全限制校验。
-- 工具返回结构。
-
-`tests/integration/`
-
-集成测试目录。初期应优先使用 mock controller，验证完整任务流程，不强依赖真实 PX4。后续再补充 PX4 SITL 手动验收。
-
-## 7. Runtime Profile 设计
-
-仿真和真机使用同一个 profile schema。
-
-`sim.yaml` 示例：
-
-```yaml
-name: sim
-mode: simulation
-
-ros:
-  node_name: drone_agent_sim
-  camera_scene_topic: /airsim_node/PX4/CameraDepth1/Scene
-
-storage:
-  photo_save_dir: /home/hw/picture
-  analysis_save_dir: /home/hw/picture/analysis_frames
-  log_dir: /home/hw/drone_agent_logs/sim
-
-llm:
-  base_url: https://api.deepseek.com
-  model: deepseek-v4-flash
-  api_key_env: DRONE_AGENT_LLM_API_KEY
-
-vlm:
-  enabled: true
-  base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
-  model: qwen3-vl-flash
-  api_key_env: DRONE_AGENT_VLM_API_KEY
-
-safety:
-  require_confirmation_for_real_flight: false
-  max_takeoff_height_m: 10
-  max_relative_move_m: 20
-  max_vertical_move_m: 10
-  max_rotation_deg: 360
-  action_timeout_s: 30
-  hover_on_timeout: true
-  stop_after_requires_confirmation: true
+```text
+/home/hw/drone_agent_logs/sim/
+  session_20260613_210501/
+    agent_messages.jsonl
+    tool_calls.jsonl
 ```
 
-`real.yaml` 保持相同结构，但可以更严格：
+时间戳使用东八区北京时间字符串，例如：
 
-- 降低最大起飞高度。
-- 降低最大相对移动距离。
-- 飞行动作默认要求人工确认。
-- 使用真机相机 topic。
-- 使用真机日志目录。
+```text
+2026-06-13 21:05:03
+```
 
-## 8. 安全契约
+当前没有 `flight_log.py`，所有已实现日志都集中在 `task_log.py`。
 
-每个工具应返回结构化 dict。通用字段包括：
+## 7. 当前配置方式
 
-- `success`
-- `error`
-- `message`
-- `requires_user_confirmation`
-- `target_position_ned`
-- `final_position_ned`
+### 7.1 profile yaml
+
+`sim.yaml`
+
+- `mode: simulation`
+- `ros.node_name: drone_agent_sim`
+- `ros.camera_scene_topic: /airsim_node/PX4/CameraDepth1/Scene`
+- `storage.log_dir: /home/hw/drone_agent_logs/sim`
+- `safety.human_in_the_loop_for_flight_tools: false`
+
+`real.yaml`
+
+- `mode: real`
+- `ros.node_name: drone_agent_real`
+- `ros.camera_scene_topic: null`
+- `storage.log_dir: /home/hw/drone_agent_logs/real`
+- `safety.human_in_the_loop_for_flight_tools: true`
+
+### 7.2 settings.json
+
+当前模型配置由 `settings.json` 提供。
+
+示例结构：
+
+```json
+{
+  "llm": {
+    "api_key": "replace-with-your-llm-key",
+    "base_url": "replace-with-your-llm-base-url",
+    "model": "replace-with-your-llm-model"
+  },
+  "vlm": {
+    "enabled": true,
+    "api_key": "replace-with-your-vlm-key",
+    "base_url": "replace-with-your-vlm-base-url",
+    "model": "replace-with-your-vlm-model"
+  }
+}
+```
+
+结论是：
+
+- `api_key` 自己填
+- `base_url` 自己填
+- `model` 自己填
+
+项目不再提供默认 provider 参数。
+
+## 8. 当前安全契约
+
+### 8.1 human in the loop
+
+当前 human in the loop 是**代码硬限制**，不是靠 LLM 理解某个返回字段来决定暂停还是继续。
+
+触发条件：
+
+- `profile.safety.human_in_the_loop_for_flight_tools == true`
+- 工具名属于 `FLIGHT_TOOL_NAMES`
+
+行为：
+
+- 执行前提示 `Y/N`
+- `Y` 继续执行
+- `N` 直接结束当前轮，回到用户输入
+
+### 8.2 超时处理
+
+当前工具超时后：
+
+1. 工具函数返回 `*_TIMEOUT`
+2. `should_end_turn_after_tool_result()` 识别为硬中断
+3. `tool_dispatcher.py` 抛出 `EndCurrentTurn`
+4. `agent_loop.py` 结束本轮
+
+因此，超时后不会继续串行调用后续飞行动作。
+
+### 8.3 位置字段语义
+
+当前仍保留这组重要语义：
+
+- `target_position_ned`：目标位置，不代表已经到达
+- `final_position_ned`：工具结束时的实际位置
+
+## 9. 当前已实现工具集合
+
+当前 Function Calling 工具集合是：
+
+- `takeoff`
+- `land`
+- `disarm`
+- `timer`
+- `hover`
+- `return_home`
+- `current_position_status`
+- `battery_status`
 - `flight_mode_status`
+- `rotate`
+- `move`
+- `take_photo`
+- `analyze_view`
 
-不是每个工具都必须包含所有字段。例如 `battery_status` 不需要 `target_position_ned`。但所有飞行动作工具都应保留当前已经确认的目标位置和最终位置契约。
+## 10. 当前已知边界
 
-规则：
+当前实现已经明确的边界包括：
 
-- Tool schema 负责校验基础输入结构。
-- `core/safety.py` 负责校验运行时安全限制。
-- `target_position_ned` 只表示预期目标，不代表任务已经完成。
-- `final_position_ned` 表示工具结束时实际采样到的位置。
-- 如果 `hover_on_timeout=true`，超时恢复应切换 hover。
-- 超时或不安全状态下，工具应返回 `requires_user_confirmation=true`。
-- 任意工具返回 `requires_user_confirmation=true` 后，`agent_loop.py` 不能继续执行飞行动作，必须等待用户确认。
-- 仿真和真机使用同一套安全逻辑，只通过 profile 调整阈值和默认确认策略。
-- API key 不能提交到源码中。
+- 不做 Web UI
+- 不做多机协同
+- 不把 AirSim 相机发布逻辑纳入本项目
+- 不在内层 `drone_agent/` 中放 ROS2 辅助脚本
 
-## 9. 开发阶段计划
+此外，当前还有几个重要“未实现但已知”的边界：
 
-### Phase 0：Spec 对齐
+- 没有单独的 `vision/camera.py`
+- 没有 `logging/flight_log.py`
+- 没有 `runtime/types.py`
+- 没有高层 `skills/` 复合能力层
 
-目标：新增本 spec，并把它作为下一阶段主规划依据。
+这些都不是遗漏，而是当前版本尚未引入。
+
+## 11. 后续规划方向
+
+本节只记录后续方向，不代表当前已经实现。下一阶段如果开始落地，应为每个方向单独写设计文档和实施计划。
+
+### 11.1 Claude/Codex 风格 skills 与自进化能力
+
+这里的 `skills` 不是“把多个 tools 顺序封装成一个复合工具”。后续要引入的 `skills` 更接近 Claude / Codex 的 Skill：它是一套可复用的能力说明、工作流、约束、模板、示例和可选脚本，用来指导 Agent 在特定任务域中更稳定地工作。
+
+建议边界：
+
+- `tools/`：LLM Function Calling 可直接调用的原子动作，例如 `takeoff`、`move`、`analyze_view`。
+- `skills/`：Agent 可读取和遵循的任务方法论，例如“视觉搜索目标”“真机低高度试飞检查”“日志复盘生成候选经验”。
+- `agents/`：后期 multi-agent 中不同职责的执行体，例如 planner、vision agent、motor agent。
+
+未来 `skills/` 可以采用下面的结构：
+
+```text
+drone_agent/
+  skills/
+    visual_search/
+      SKILL.md
+      examples/
+      scripts/
+    real_flight_check/
+      SKILL.md
+      examples/
+    log_to_skill_candidate/
+      SKILL.md
+      templates/
+```
+
+`SKILL.md` 建议包含：
+
+- skill 名称和适用场景。
+- 触发条件：什么用户请求或什么日志模式应该使用它。
+- 工作流：Agent 应该按什么步骤思考和执行。
+- 可调用 tools：允许使用哪些工具。
+- 安全约束：哪些动作必须确认，哪些情况必须停止。
+- 失败处理：工具失败、超时、低置信度时如何处理。
+- 反例：哪些情况不应该使用该 skill。
+- 示例：典型用户请求、工具调用轨迹、期望结果。
+
+自进化流程建议：
+
+1. Agent 从会话日志中发现重复任务模式或高价值经验。
+2. Agent 调用内置 `skill creator`，读取相关 `agent_messages.jsonl` 和 `tool_calls.jsonl`。
+3. `skill creator` 生成候选 `SKILL.md`。
+4. 用户 review 候选 skill。
+5. 用户确认后，才写入 `drone_agent/skills/<skill_name>/SKILL.md`。
+6. 新 skill 默认先进入 `draft` 或 `disabled` 状态。
+7. 用户显式启用后，Agent 才能在后续任务中使用。
+
+关键原则：
+
+- 自动提炼可以由 Agent 做。
+- 正式生成必须由用户确认。
+- 初期只生成说明型/流程型 `SKILL.md`，不自动生成可执行 Python 代码。
+- 如果后期允许生成脚本，脚本必须经过用户 review，并默认只作为辅助工具，不直接绕过飞控安全层。
+
+### 11.2 真机安全门现状与后续补充
+
+当前已经实现了一部分基础安全门：
+
+- `human_in_the_loop_for_flight_tools`：飞行工具执行前 Y/N 硬确认。
+- `max_takeoff_height_m`：最大起飞高度限制。
+- `max_relative_move_m`：单次水平移动距离限制。
+- `max_vertical_move_m`：单次垂直移动距离限制。
+- `max_rotation_deg`：单次旋转角度限制。
+- `action_timeout_s`：动作超时限制。
+- `hover_on_timeout`：超时后进入 hover。
+- 本地位置有效性检查。
+- 工具返回 `*_TIMEOUT` 后结束当前轮，不继续串行执行后续飞行动作。
+
+后续真机试验需要补充更细粒度安全门。
+
+这些安全门是否启用、阈值是多少，后续应继续放在 `drone_agent/config/profiles/*.yaml` 中由用户选择。仿真和真机可以使用同一套字段，但默认值不同。
+
+示例扩展：
+
+```yaml
+safety:
+  preflight_checks_enabled: true
+  require_battery_check: true
+  min_battery_percent: 30
+  require_position_valid_before_arm: true
+  require_camera_ready_before_vision: true
+  detect_other_fmu_publishers: true
+  stop_on_position_deviation: true
+  max_position_deviation_m: 0.8
+  block_large_motion_on_low_vlm_confidence: true
+  min_vlm_confidence_for_motion: 0.6
+  user_intervention_hover_for_flight_tools: true
+```
+
+#### 启动前安全门
+
+- ROS2/PX4 DDS 链路是否正常。
+- PX4 本地位置是否有效。
+- 飞控状态是否可读。
+- 电池是否连接。
+- 电池电量是否高于真机阈值。
+- 是否检测到相机 topic。
+- 是否有其它控制节点在发布 `/fmu/in/*`。
+
+#### 解锁前安全门
+
+- 用户是否明确确认当前是真机运行。
+- 是否处于允许解锁的飞行状态。
+- 是否满足 position lock。
+- 是否满足最低电量。
+- 是否允许当前任务进入解锁阶段。
+
+#### 起飞安全门
+
+- 起飞高度不得超过 profile 限制。
+- 起飞前必须确认当前位置有效。
+- 起飞后必须检查是否真的离地。
+- 起飞失败必须进入 hover 或降落策略。
+
+#### 移动安全门
+
+- 单次水平移动距离限制。
+- 单次垂直移动距离限制。
+- 最大高度限制。
+- 最大下降幅度限制。
+- 移动前后检查当前位置偏差。
+- 如果偏差过大，停止后续飞行动作。
+
+#### 旋转安全门
+
+- 单次旋转角度限制。
+- 旋转超时后结束当前轮。
+- 旋转后检查 yaw 是否接近目标。
+
+#### 感知安全门
+
+- 图像未就绪时不执行视觉任务。
+- VLM 低置信度时不允许直接触发大幅移动。
+- 视觉建议动作必须经过飞行安全限制二次校验。
+
+#### 运行中安全门
+
+- 低电量触发返航或降落建议。
+- PX4 状态异常时停止后续飞行动作。
+- 用户介入时立即 hover。
+- 手动接管或遥控器优先级高于 Agent。
+
+### 11.3 运行时任务状态
+
+当前项目已经有：
+
+- `messages`：当前进程内的 LLM 对话上下文。
+- 会话日志：`agent_messages.jsonl` 和 `tool_calls.jsonl`。
+- `ToolContext`：包含 `controller`、`profile`、`session_id`。
+
+当前阶段不规划长期记忆模块，也不强调历史任务恢复。
+
+后续更需要的是“运行时任务状态”，用于支持用户介入和 multi-agent 协作。
+
+建议新增：
+
+```text
+drone_agent/
+  runtime/
+    task_state.py
+```
+
+`TaskState` 可以包含：
+
+- `task_id`
+- `current_user_goal`
+- `current_phase`
+- `active_tool_name`
+- `active_agent_name`
+- `active_flight_action`
+- `last_tool_result`
+- `last_vision_summary`
+- `last_motor_summary`
+- `intervention_pending`
+- `intervention_message`
+
+它的目的不是恢复很久以前的任务，而是回答当前运行中的几个关键问题：
+
+- Agent 现在是否正在执行工具。
+- 当前执行的是否是飞行控制相关工具。
+- 当前飞行动作是什么。
+- 是否有用户介入消息等待处理。
+- MotorAgent / VisionAgent 最近返回了什么有效摘要。
+- Planner 是否可以继续分派下一步任务。
+
+这些状态后续也应该在 CLI 或 Web 界面中可见。用户应该能看到：
+
+- PlannerAgent 生成的任务计划。
+- 哪些任务被分配给 VisionAgent。
+- 哪些任务被分配给 MotorAgent。
+- 当前每个任务的执行状态。
+- 每个 agent 返回的精简结果摘要。
+- 当前是否等待用户确认或介入处理。
+
+### 11.4 MessageBus 与语言介入
+
+当前 agent 执行工具时，用户无法在同一个终端输入语言打断正在执行的动作。这对真机测试不安全。
+
+后续应引入一个中心 `MessageBus` 队列。用户输入、Planner、MotorAgent、VisionAgent 都通过这个 bus 传递消息。
+
+基础结构可以是：
+
+```text
+用户输入线程 / async task
+  -> MessageBus
+  -> PlannerAgent
+  -> MotorAgent / VisionAgent
+```
+
+语言介入的核心规则：
+
+- 用户输入统一进入 `MessageBus`。
+- 只要 Agent 正在执行任意工具，且 bus 中出现新的用户输入，则认为发生用户介入。
+- 一旦发生用户介入，当前工具必须暂停或取消。
+- 如果当前工具是飞行控制相关工具，飞控层必须立即进入 hover。
+- 如果当前工具不是飞行控制相关工具，不需要 hover，但也必须停止当前工具执行，等待介入语句处理完成。
+- 介入消息被补充给 LLM / Planner。
+- Planner 处理介入语句后，再决定继续、修改任务、返航、降落或取消任务。
+
+介入流程建议：
+
+```text
+Agent 正在执行任意工具
+  -> MessageBus 收到新的 UserMessage
+  -> runtime 标记 intervention_pending=true
+  -> 当前工具停止执行并返回 INTERRUPTED_BY_USER
+  -> 如果当前工具属于飞行控制相关工具，MotorAgent 立即调用 hover / emergency_hover
+  -> PlannerAgent 读取用户介入消息
+  -> PlannerAgent 重新规划或请求用户确认
+```
+
+最小消息类型建议：
+
+- `UserMessage`
+- `UserIntervention`
+- `PlannerMessage`
+- `TaskAssignment`
+- `TaskResult`
+- `SafetyCommand`
+
+不需要一开始定义大量事件类型。后续如果确实需要，再按实际行为扩展。
+
+### 11.5 异步 multi-agent 架构
+
+后期引入 multi-agent 时，建议从当前单体同步 loop 演进到异步 message bus 架构。
+
+目标角色：
+
+- `PlannerAgent`：理解用户目标，生成计划，决定任务分派。
+- `VisionAgent`：负责相机画面、VLM、目标识别、场景总结。
+- `MotorAgent`：负责飞行动作、PX4 控制、安全执行。
+
+推荐架构：
+
+```text
+Runtime
+  -> MessageBus
+  -> TaskState
+  -> PlannerAgent
+  -> VisionAgent
+  -> MotorAgent
+  -> Px4Controller
+```
+
+推荐运行模型：
+
+- 使用 `asyncio` 作为主并发模型。
+- 用户输入监听、PlannerAgent、VisionAgent、MotorAgent、日志记录分别作为 async task。
+- Agent 之间不直接互相调用，而是通过 `MessageBus` 传递任务和结果。
+- `MotorAgent` 拥有唯一飞控执行权。
+- `PlannerAgent` 只能向 `MotorAgent` 发任务，不能直接绕过 `MotorAgent` 控制 PX4。
+- `VisionAgent` 只返回精简视觉摘要，不把完整视觉对话上下文塞回 Planner。
+- `MotorAgent` 只返回精简动作结果和飞行状态摘要，不把每一步内部执行细节塞回 Planner。
+
+Planner 工作流建议：
+
+1. 用户提出任务。
+2. `PlannerAgent` 生成计划。
+3. 用户查看并确认计划。
+4. `PlannerAgent` 把飞控任务分配给 `MotorAgent`。
+5. `PlannerAgent` 把视觉任务分配给 `VisionAgent`。
+6. `MotorAgent` 和 `VisionAgent` 在不冲突时可以并行执行。
+7. 两个 agent 返回有效精简上下文。
+8. `PlannerAgent` 根据结果决定下一步或结束任务。
+
+CLI 或 Web 界面后续应展示 Planner 的计划和分派情况。最小可见信息包括：
+
+- 当前用户目标。
+- Planner 生成的步骤列表。
+- 每个步骤分配给哪个 agent。
+- 每个步骤状态：`pending`、`running`、`completed`、`failed`、`interrupted`。
+- VisionAgent 返回的场景摘要、目标是否出现、置信度。
+- MotorAgent 返回的动作摘要、最终位置、电池和飞控状态。
+- 当前是否需要用户确认计划、确认飞行动作或处理介入消息。
+
+这种结构的价值：
+
+- 飞行动作和视觉观察可以并行，提高效率。
+- Planner 的上下文更干净，只接收必要摘要。
+- 飞控执行权集中在 MotorAgent，安全边界清楚。
+- 用户介入可以通过 MessageBus 统一处理。
+- 后续扩展更多 agent 时，不需要让所有 agent 互相直接依赖。
+
+### 11.6 后续实施顺序建议
+
+后续实现应收敛为 5 个大方向，并按下面顺序推进：
+
+```text
+TaskState -> 语言介入 -> 安全门 -> Skills -> Multi-Agent
+```
+
+这个顺序的判断依据是：先让系统知道自己正在做什么，再让用户可以随时介入，然后补真机安全边界，最后再做自进化能力和多 agent 协作。无人机 Agent 的核心风险不是能力不足，而是执行过程不可观测、不可打断、不可解释。
+
+#### Phase 5：TaskState
+
+目标：建立最小运行时任务状态，让当前同步架构具备可观测基础。
+
+范围：
+
+- 记录当前用户目标。
+- 记录当前正在执行的工具。
+- 标记当前工具是否属于飞行控制工具。
+- 记录工具执行状态：`idle`、`running`、`completed`、`failed`、`interrupted`。
+- 记录最近一次工具结果。
+- 记录是否等待用户确认。
+- 记录是否存在用户介入消息。
+
+建议先不要做：
+
+- 长期记忆。
+- 历史任务恢复。
+- 复杂任务数据库。
 
 验收标准：
 
-- spec 明确使用 ROS2 `rclpy` + `px4_msgs` DDS 作为主控路径。
-- spec 明确 `/download/takeoff.py` 是当前事实基线。
-- spec 明确 function-calling 工具目录叫 `tools/`，不叫 `skills/`。
-- spec 明确仿真和真机是同一控制链路上的不同 profile。
-- spec 明确在架构和配置对齐前，不优先新增能力。
+- CLI 或日志中能看到当前任务状态。
+- 任意工具执行前后都会更新 `TaskState`。
+- 后续语言介入、安全门、multi-agent 都能复用同一个状态对象。
 
-### Phase 1：项目骨架与配置
+#### Phase 6：语言介入
 
-目标：创建 Python 包骨架、CLI 入口、profile 加载和环境变量密钥读取。
+目标：解决 Agent 执行工具期间用户无法打断的问题。
 
-验收标准：
+范围：
 
-- `drone_agent --profile sim` 能加载 `sim.yaml`。
-- `drone_agent --profile real` 能加载 `real.yaml`。
-- `drone_agent_sim` 能映射到仿真 profile。
-- `drone_agent_real` 能映射到真机 profile。
-- 缺失必要配置时，启动阶段给出清晰错误。
-- LLM/VLM API key 不再硬编码。
-
-### Phase 2：PX4 控制层迁移
-
-目标：把当前 `Px4Controller`、topic 名称、状态解释、坐标转换迁移到 `px4/`。
+- 引入最小 `MessageBus`。
+- 用户输入统一进入 bus 队列。
+- 工具执行期间持续检查是否有新用户消息。
+- 任意工具执行期间收到新消息，都停止当前工具。
+- 如果当前工具是飞行控制相关工具，先让无人机进入 hover。
+- 将介入消息补充给 LLM / Planner，再决定后续动作。
 
 验收标准：
 
-- DDS publisher/subscriber 行为与当前原型等价。
-- PX4 QoS profile 保持与当前可工作的 DDS 配置兼容。
-- body-frame 移动转换逻辑独立并有单元测试。
-- controller 初始化可以脱离完整 agent loop 单独检查。
+- 执行非飞行工具时，用户输入可以中断当前工具。
+- 执行飞行工具时，用户输入可以触发 hover 并中断当前工具。
+- 中断后不会继续执行旧任务链路中的后续工具。
 
-### Phase 3：Tools 与 Agent Loop 迁移
+#### Phase 7：安全门
 
-目标：把 tools、tool schemas、dispatcher、prompts、agent loop 迁移到目标模块。
+目标：把当前基础安全限制扩展成真机试验级安全门。
 
-验收标准：
+范围：
 
-- 当前工具集合保持可用：
-  - `takeoff`
-  - `land`
-  - `disarm`
-  - `timer`
-  - `hover`
-  - `return_home`
-  - `current_position_status`
-  - `battery_status`
-  - `flight_mode_status`
-  - `rotate`
-  - `move`
-  - `take_photo`
-  - `analyze_view`
-- 工具分发不再使用长串硬编码 `if`。
-- 工具返回结构保留 `requires_user_confirmation`、`target_position_ned`、`final_position_ned`。
-- system prompt 迁移到 `llm/prompts.py`。
+- 安全门开关和阈值继续放在 `config/profiles/*.yaml`。
+- 先补启动前检查、解锁前检查、电池阈值、位置有效性、动作偏差检查。
+- 再补 VLM 低置信度动作限制、PX4 状态异常处理、其它控制节点冲突检测。
 
-### Phase 4：安全、日志与运行验收
+建议顺序：
 
-目标：集中安全策略，加入最小日志，并准备仿真和真机入口。
+1. 先扩展 profile schema。
+2. 再实现启动前检查。
+3. 再实现解锁前检查。
+4. 再实现飞行动作执行前后的偏差检查。
+5. 最后再加感知相关安全门。
 
 验收标准：
 
-- 超时后按配置触发 hover。
-- `requires_user_confirmation=true` 后停止继续执行飞行动作。
-- 工具调用写入日志。
-- Agent 任务流程写入日志。
-- `drone_agent_sim` 可以运行当前仿真控制链路。
-- `drone_agent_real` 使用同一代码链路，只通过 profile 区分。
+- 仿真和真机可以使用不同默认安全策略。
+- 用户能在 profile 中选择启用或关闭具体安全门。
+- 真机 profile 默认比仿真 profile 更保守。
 
-## 10. 测试策略
+#### Phase 8：Skills
 
-单元测试优先覆盖：
+目标：引入 Claude/Codex 风格的 `SKILL.md` 能力包，让 Agent 可以复用经过确认的经验和流程。
 
-- 配置加载。
-- 环境变量缺失。
-- topic 配置校验。
-- body FRD 到 world NED 的坐标转换。
-- PX4 状态 enum 转换。
-- tool dispatcher 路由。
-- 安全限制检查。
-- 工具返回结构。
+范围：
 
-集成测试初期使用 mock controller，验证：
+- 先支持手写 skill。
+- 再支持从日志生成候选 skill。
+- 候选 skill 必须由用户确认后才能启用。
+- 初期 skill 只影响 Agent 的规划和工具选择，不直接生成飞控代码。
 
-- 用户消息到模型回复的流程。
-- tool call 分发和结果回填流程。
-- 人工确认阻断行为。
-- 按 profile 启用或禁用工具。
+验收标准：
 
-仿真手动验收覆盖：
+- Agent 能加载并使用手写 `SKILL.md`。
+- Agent 能根据日志生成候选 skill 草稿。
+- 未经用户确认的 skill 不会进入可用状态。
 
-- 自然语言起飞。
-- 相对移动。
-- 旋转。
-- 拍照。
-- 画面分析。
-- 返航。
-- 降落。
+#### Phase 9：Multi-Agent
 
-真机验收必须保守推进：
+目标：从单 Agent loop 演进到 Planner / Vision / Motor 分工架构。
 
-- 只查询状态。
-- 检查位置有效性。
-- 检查电池状态。
-- 人工确认后低高度起飞。
-- hover 和 land。
+范围：
 
-## 11. 立即下一步
+- `PlannerAgent` 先生成计划，并给用户确认。
+- `PlannerAgent` 将视觉任务分给 `VisionAgent`。
+- `PlannerAgent` 将飞控任务分给 `MotorAgent`。
+- `VisionAgent` 返回精简视觉摘要。
+- `MotorAgent` 返回精简动作结果和飞行状态摘要。
+- `MotorAgent` 是唯一飞控执行出口。
 
-1. 保留当前 `/download/takeoff.py` 作为工作原型，直到新包能运行等价行为。
-2. 创建 Python 包骨架和 profile 文件。
-3. 把硬编码 API key、模型名、base URL 移入 profile/env 加载。
-4. 先迁移 PX4 controller，不改变行为。
-5. controller 边界稳定后，再迁移 tools 和 schemas。
-6. 补充坐标转换、配置加载、dispatcher 路由、安全决策相关测试。
-7. 行为等价后，再考虑更高层复合 skills。
+第一版 multi-agent 不应追求复杂并发。可以先实现串行分派和结果汇总，再逐步允许 VisionAgent 和 MotorAgent 在不冲突的任务上并行执行。
+
+验收标准：
+
+- 用户能看到 Planner 的计划并确认。
+- 用户能看到任务分配给了哪个 agent。
+- Planner 上下文只接收必要摘要，不接收所有底层工具细节。
+- 两个飞行动作不会并行执行。
+
+核心原则：
+
+- 真机安全优先级高于任务完成。
+- 用户介入优先级高于 Planner。
+- 任意工具执行期间都应响应用户介入。
+- 飞行控制相关工具被介入时必须先 hover。
+- `MotorAgent` 或等价飞控执行层必须是唯一飞行控制出口。
+- Planner 的计划必须先给用户确认。
+- 自动生成 skill 必须经过用户确认。
+- 新能力先在仿真验证，再进入真机 profile。
