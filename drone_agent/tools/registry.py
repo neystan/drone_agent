@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from drone_agent.config.schema import RuntimeProfile
+from drone_agent.runtime.task_state import TaskState
 from . import flight, perception, status
 from .schemas import (
     ANALYZE_VIEW_TOOL_SCHEMA,
@@ -29,11 +30,12 @@ ToolHandler = Callable[["ToolContext", dict[str, Any]], dict[str, Any]]
 
 @dataclass(frozen=True)
 class ToolContext:
-    """将执行一次工具所需的一切环境（控制器、配置、会话ID）打包在一起"""
+    """将执行一次工具所需的一切环境打包在一起。"""
 
     controller: Any
     profile: RuntimeProfile
     session_id: str = "adhoc"
+    task_state: TaskState | None = None
 
 
 @dataclass(frozen=True)
@@ -150,7 +152,7 @@ def get_tool_definition(name: str) -> ToolDefinition | None:
     return TOOL_DEFINITION_BY_NAME.get(name)
 
 
-#界定工具注册表的“公开接口
+# 界定工具注册表的公开接口。
 __all__ = [
     "ToolContext",
     "ToolDefinition",

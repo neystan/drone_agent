@@ -5,13 +5,15 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from drone_agent.logging.task_log import log_task_state, log_tool_call
 from drone_agent.runtime.safety import (
     EndCurrentTurn,
+    FLIGHT_TOOL_NAMES,
     confirm_flight_tool,
     requires_human_in_the_loop,
     should_end_turn_after_tool_result,
 )
-from drone_agent.logging.task_log import log_tool_call
+from drone_agent.runtime.task_state import format_task_state_line
 from drone_agent.tools.registry import ToolContext, get_tool_definition
 
 
@@ -19,6 +21,7 @@ def dispatch_tool_call(context: ToolContext, call: Any) -> dict:
     """解析并执行一次模型返回的工具调用。"""
     tool_name = call.function.name
     raw_arguments = call.function.arguments or "{}"
+    is_flight_tool = tool_name in FLIGHT_TOOL_NAMES
     print(f"tool> calling {tool_name} args={raw_arguments}")
 
     definition = get_tool_definition(tool_name)
@@ -35,6 +38,7 @@ def dispatch_tool_call(context: ToolContext, call: Any) -> dict:
             {"raw_arguments": raw_arguments},
             result,
         )
+        _update_task_state(context, "tool_finished", tool_name, result=result)
         return result
 
     try:
@@ -52,6 +56,7 @@ def dispatch_tool_call(context: ToolContext, call: Any) -> dict:
             {"raw_arguments": raw_arguments},
             result,
         )
+        _update_task_state(context, "tool_finished", tool_name, result=result)
         return result
 
     if not isinstance(arguments, dict):
@@ -61,9 +66,17 @@ def dispatch_tool_call(context: ToolContext, call: Any) -> dict:
             "message": "tool arguments must be a JSON object",
         }
         log_tool_call(context.profile, context.session_id, tool_name, arguments, result)
+        _update_task_state(context, "tool_finished", tool_name, result=result)
         return result
 
     if requires_human_in_the_loop(context.profile, tool_name):
+        _update_task_state(
+            context,
+            "waiting_for_confirmation",
+            tool_name,
+            arguments=arguments,
+            is_flight_tool=is_flight_tool,
+        )
         try:
             confirm_flight_tool(tool_name, arguments)
         except EndCurrentTurn as exc:
@@ -73,13 +86,63 @@ def dispatch_tool_call(context: ToolContext, call: Any) -> dict:
                 "message": str(exc),
             }
             log_tool_call(context.profile, context.session_id, tool_name, arguments, result)
+            _update_task_state(context, "interrupted", tool_name, result=result)
             raise EndCurrentTurn(str(exc), result) from exc
 
+    _update_task_state(
+        context,
+        "tool_running",
+        tool_name,
+        arguments=arguments,
+        is_flight_tool=is_flight_tool,
+    )
     result = definition.handler(context, arguments)
     log_tool_call(context.profile, context.session_id, tool_name, arguments, result)
+    _update_task_state(context, "tool_finished", tool_name, result=result)
     if should_end_turn_after_tool_result(result):
+        _update_task_state(context, "interrupted", tool_name, result=result)
         raise EndCurrentTurn(
             result.get("message", "当前工具执行超时，本轮已结束。"),
             result,
         )
     return result
+
+
+def _update_task_state(
+    context: ToolContext,
+    phase: str,
+    tool_name: str,
+    arguments: dict[str, Any] | None = None,
+    is_flight_tool: bool = False,
+    result: dict[str, Any] | None = None,
+) -> None:
+    """按阶段统一更新工具相关状态。"""
+    if context.task_state is None:
+        return
+    if phase == "waiting_for_confirmation":
+        context.task_state.set_waiting_for_confirmation(
+            tool_name,
+            arguments or {},
+            is_flight_tool,
+        )
+    elif phase == "tool_running":
+        context.task_state.start_tool(
+            tool_name,
+            arguments or {},
+            is_flight_tool,
+        )
+    elif phase == "tool_finished":
+        context.task_state.finish_tool(tool_name, result or {})
+    elif phase == "interrupted":
+        context.task_state.interrupt(tool_name, result or {})
+    else:
+        return
+    _record_task_state(context)
+
+
+def _record_task_state(context: ToolContext) -> None:
+    """把当前工具状态打印到终端并写入日志。"""
+    if context.task_state is None:
+        return
+    print(format_task_state_line(context.task_state))
+    log_task_state(context.profile, context.session_id, context.task_state)

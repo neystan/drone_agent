@@ -5,9 +5,10 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from drone_agent.logging.task_log import log_agent_message, log_task_state
 from drone_agent.runtime.safety import EndCurrentTurn
+from drone_agent.runtime.task_state import format_task_state_line
 from drone_agent.runtime.tool_dispatcher import dispatch_tool_call
-from drone_agent.logging.task_log import log_agent_message
 from drone_agent.tools.registry import ToolContext, get_tool_schemas
 
 
@@ -22,6 +23,7 @@ def agent_loop(
 ) -> str:
     """执行一轮模型对话，直到得到最终回复或中断。"""
     for _ in range(MAX_TOOL_CALLS_PER_TURN):
+        _record_task_state(context, "thinking")
         response = client.chat.completions.create(
             model=model,
             messages=messages,
@@ -34,6 +36,7 @@ def agent_loop(
         tool_calls = message.tool_calls or []
 
         if not tool_calls:
+            _record_task_state(context, "idle")
             assistant_text = message.content or ""
             print(f"agent> {assistant_text}")
             messages.append({"role": "assistant", "content": assistant_text})
@@ -86,3 +89,15 @@ def agent_loop(
     print(f"agent> {assistant_text}")
     log_agent_message(context.profile, context.session_id, "assistant", assistant_text)
     return assistant_text
+
+
+def _record_task_state(context: ToolContext, phase: str) -> None:
+    """更新当前阶段，并同步打印和落盘。"""
+    if context.task_state is None:
+        return
+    if phase == "thinking":
+        context.task_state.set_thinking()
+    elif phase == "idle":
+        context.task_state.set_idle()
+    print(format_task_state_line(context.task_state))
+    log_task_state(context.profile, context.session_id, context.task_state)

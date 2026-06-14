@@ -28,7 +28,7 @@ class EndCurrentTurn(RuntimeError):
 
 
 def requires_human_in_the_loop(profile: RuntimeProfile, tool_name: str) -> bool:
-    """判断当前工具是否需要人工确认后才能执行。"""
+    """判断当前工具和模式是否需要人工确认后才能执行。"""
     if not profile.safety.human_in_the_loop_for_flight_tools:
         return False
     return tool_name in FLIGHT_TOOL_NAMES
@@ -36,12 +36,9 @@ def requires_human_in_the_loop(profile: RuntimeProfile, tool_name: str) -> bool:
 
 def confirm_flight_tool(tool_name: str, arguments: dict[str, Any]) -> None:
     """在执行飞行工具前要求用户用 Y/N 明确确认。"""
-    print(
-        "confirm> "
-        f"{tool_name} args={json.dumps(arguments, ensure_ascii=False)}"
-    )
-    while True:
-        answer = input("human-in-the-loop> 执行该飞行动作？[Y/N]: ").strip().lower()
+    while True: 
+        answer = input(f"human-in-the-loop> {tool_name} args={json.dumps(arguments, ensure_ascii=False)} "
+                        f"| 执行该飞行动作？[Y/N]: ").strip().lower()
         if answer == "y":
             return
         if answer == "n":

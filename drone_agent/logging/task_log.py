@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from drone_agent.config.schema import RuntimeProfile
+from drone_agent.runtime.task_state import TaskState
 
 BEIJING_TZ = timezone(timedelta(hours=8))
 
@@ -74,5 +75,32 @@ def log_agent_message(
     }
     try:
         append_jsonl(str(_session_log_dir(profile, session_id)), "agent_messages.jsonl", event)
+    except OSError:
+        pass
+
+
+def log_task_state(
+    profile: RuntimeProfile,
+    session_id: str,
+    task_state: TaskState,
+) -> None:
+    """记录一次当前会话的任务状态快照。"""
+    snapshot = task_state.snapshot()
+    event = {
+        "timestamp": _timestamp(),
+        "profile_name": profile.name,
+        "event_type": "task_state",
+        "task_id": snapshot["task_id"],
+        "current_phase": snapshot["current_phase"],
+        "current_user_goal": snapshot["current_user_goal"],
+        "active_tool_name": snapshot["active_tool_name"],
+        "active_tool_is_flight_tool": snapshot["active_tool_is_flight_tool"],
+        "waiting_for_user_confirmation": snapshot["waiting_for_user_confirmation"],
+        "intervention_pending": snapshot["intervention_pending"],
+        "last_tool_name": snapshot["last_tool_name"],
+        "last_error": snapshot["last_error"],
+    }
+    try:
+        append_jsonl(str(_session_log_dir(profile, session_id)), "task_state.jsonl", event)
     except OSError:
         pass

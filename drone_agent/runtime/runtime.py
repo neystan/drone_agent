@@ -7,9 +7,10 @@ from dataclasses import dataclass
 from typing import Any
 
 from drone_agent.config.loader import load_profile
-from drone_agent.logging.task_log import create_session_id, log_agent_message
+from drone_agent.logging.task_log import create_session_id, log_agent_message, log_task_state
 from drone_agent.llm.client import create_llm_client
 from drone_agent.llm.prompts import SYSTEM_PROMPT
+from drone_agent.runtime.task_state import TaskState, format_task_state_line
 from drone_agent.tools.registry import ToolContext
 
 
@@ -54,6 +55,8 @@ def _start_live_runtime(profile) -> None:
     executor_thread = None
 
     try:
+        session_id = create_session_id()
+        task_state = TaskState(task_id=session_id)
         controller = Px4Controller(
             node_name=profile.ros.node_name,
             camera_scene_topic=profile.ros.camera_scene_topic,
@@ -61,7 +64,12 @@ def _start_live_runtime(profile) -> None:
         executor.add_node(controller)
         executor_thread = threading.Thread(target=executor.spin, daemon=True)
         client = create_llm_client(profile)
-        context = ToolContext(controller=controller, profile=profile, session_id=create_session_id())
+        context = ToolContext(
+            controller=controller,
+            profile=profile,
+            session_id=session_id,
+            task_state=task_state,
+        )
         executor_thread.start()
         log_agent_message(profile, context.session_id, "system", SYSTEM_PROMPT)
         _run_interactive_loop(client, profile.llm.model, context, agent_loop)
@@ -93,6 +101,7 @@ def _run_interactive_loop(client: Any, model: str, context: ToolContext, agent_l
     _configure_readline()
     messages: list[dict[str, Any]] = [{"role": "system", "content": SYSTEM_PROMPT}]
     print("输入自然语言与 agent 对话，输入 exit 退出。")
+    _record_task_state(context)
 
     while True:
         user_input = input("you> ").strip()
@@ -100,6 +109,16 @@ def _run_interactive_loop(client: Any, model: str, context: ToolContext, agent_l
             continue
         if user_input.lower() in {"exit", "quit"}:
             break
+        if context.task_state is not None:
+            context.task_state.start_new_goal(user_input)
         messages.append({"role": "user", "content": user_input})
         log_agent_message(context.profile, context.session_id, "user", user_input)
         agent_loop(client, model, messages, context)
+
+
+def _record_task_state(context: ToolContext) -> None:
+    """打印并记录当前会话状态。"""
+    if context.task_state is None:
+        return
+    print(format_task_state_line(context.task_state))
+    log_task_state(context.profile, context.session_id, context.task_state)
