@@ -29,9 +29,10 @@
   -> drone_agent_sim / drone_agent_real
   -> runtime.runtime.start_runtime()
   -> 创建 TaskState 实例
+  -> 创建 MessageBus 与输入线程
   -> runtime.agent_loop.agent_loop()
   -> runtime.tool_dispatcher.dispatch_tool_call()
-  -> TaskState 状态转移（thinking / tool_running / tool_completed / interrupted）
+  -> TaskState 状态转移（thinking / tool_running / tool_completed / interrupted / intervention_pending）
   -> tools/*
   -> px4.controller.Px4Controller
   -> ROS2 rclpy + px4_msgs
@@ -275,9 +276,11 @@ DRONE_AGENT_SETTINGS
 - 创建 `Px4Controller`
 - 创建 LLM client
 - 创建 `TaskState` 实例
+- 创建 `MessageBus` 实例
 - 创建 `ToolContext`（含 `task_state`）
 - 生成 `session_id`
-- 启动交互式命令循环
+- 启动输入线程，把用户输入写入 `MessageBus`
+- 从 `MessageBus` 消费用户输入并启动 agent loop
 - 每轮用户输入后调用 `task_state.start_new_goal()`
 - 每轮 agent loop 前后打印并记录任务状态
 - 配置 readline，修复中文输入删除问题
@@ -304,9 +307,10 @@ DRONE_AGENT_SETTINGS
 - 解析模型返回的工具名和 JSON 参数
 - 做工具存在性检查
 - 执行 human in the loop 硬确认
+- 在工具执行前检查是否已有用户介入消息
 - 调用具体工具函数
 - 记录工具调用日志
-- 在超时等硬中断场景结束当前轮
+- 在超时、用户介入等硬中断场景结束当前轮
 - 通过 `_update_task_state()` 在工具生命周期各阶段同步更新 `TaskState`：
   - `waiting_for_confirmation`：等待人工确认
   - `tool_running`：工具执行中
@@ -342,7 +346,40 @@ DRONE_AGENT_SETTINGS
 - `start_tool(tool_name, arguments, is_flight_tool)`：标记工具开始执行
 - `finish_tool(tool_name, result)`：根据工具结果更新成功或失败
 - `interrupt(tool_name, result)`：标记因拒绝、超时等原因被中断
+- `mark_intervention(message)`：记录一条等待处理的用户介入消息
+- `clear_intervention()`：清空已经交给 LLM 处理的介入状态
 - `snapshot()`：导出当前状态快照，供日志记录使用
+
+#### `drone_agent/bus/`
+
+`bus/` 是 Phase 6 新增的运行时消息总线层。
+
+`queue.py`
+
+封装线程安全的同步消息队列 `SyncMessageQueue`，提供：
+
+- `publish()`
+- `consume()`
+- `try_consume()`
+- `has_pending()`
+
+`message_bus.py`
+
+定义：
+
+- `UserMessage`
+- `MessageBus`
+
+当前主要用于把用户自然语言输入从输入线程传递给 runtime、dispatcher 和工具函数。
+
+`intervention.py`
+
+集中处理语言介入：
+
+- `should_interrupt(context)`：判断是否存在待处理用户介入
+- `consume_intervention(context)`：取出介入消息并更新 `TaskState`
+- `build_interrupted_result(...)`：构造 `INTERRUPTED_BY_USER` 结果
+- `interrupt_if_requested(...)`：统一检测介入，必要时对飞行工具执行 hover 保护动作
 
 终端输出：
 
@@ -652,7 +689,7 @@ DRONE_AGENT_SETTINGS
 - 没有 `logging/flight_log.py`
 - 没有 `runtime/types.py`
 - 没有高层 `skills/` 复合能力层
-- 没有 `MessageBus` 和语言介入机制
+- 没有 async runtime，当前语言介入仍基于同步 `MessageBus`、输入线程和工具内部检查点
 - 没有异步 multi-agent 架构
 
 这些都不是遗漏，而是当前版本尚未引入。
@@ -970,7 +1007,7 @@ CLI 或 Web 界面后续应展示 Planner 的计划和分派情况。最小可�
 后续实现应收敛为 5 个大方向，并按下面顺序推进：
 
 ```text
-✅ TaskState（已完成） -> 语言介入 -> 安全门 -> Skills -> Multi-Agent
+✅ TaskState（已完成） -> ✅ 语言介入（已完成第一版） -> 安全门 -> Skills -> Multi-Agent
 ```
 
 这个顺序的判断依据是：先让系统知道自己正在做什么，再让用户可以随时介入，然后补真机安全边界，最后再做自进化能力和多 agent 协作。无人机 Agent 的核心风险不是能力不足，而是执行过程不可观测、不可打断、不可解释。
@@ -994,26 +1031,34 @@ CLI 或 Web 界面后续应展示 Planner 的计划和分派情况。最小可�
 
 设计文档：`docs/PHASE_5_TASK_STATE_DESIGN.md`
 
-#### Phase 6：语言介入（下一阶段）
+#### Phase 6：语言介入（已完成第一版）
 
 目标：解决 Agent 执行工具期间用户无法打断的问题。
 
 前置依赖：Phase 5 TaskState 已完成，`intervention_pending` 字段已就绪。
 
-范围：
+完成内容：
 
-- 引入最小 `MessageBus`。
-- 用户输入统一进入 bus 队列。
-- 工具执行期间持续检查是否有新用户消息。
-- 任意工具执行期间收到新消息，都停止当前工具。
-- 如果当前工具是飞行控制相关工具，先让无人机进入 hover。
-- 将介入消息补充给 LLM / Planner，再决定后续动作。
+- ✅ 新增 `drone_agent/bus/queue.py`，封装同步消息队列。
+- ✅ 新增 `drone_agent/bus/message_bus.py`，提供用户消息发布与消费。
+- ✅ 新增 `drone_agent/bus/intervention.py`，集中处理用户介入检测与中断结果。
+- ✅ 用户输入由输入线程写入 `MessageBus`。
+- ✅ runtime 主循环从 `MessageBus` 消费用户消息。
+- ✅ `ToolContext` 已携带 `message_bus`。
+- ✅ `tool_dispatcher.py` 在工具执行前检查介入消息。
+- ✅ `timer()` 支持非飞行工具介入中断。
+- ✅ `takeoff()`、`move()`、`rotate()`、`land()` 支持飞行工具介入中断。
+- ✅ 飞行工具介入时先发送 hover 保护动作。
+- ✅ `INTERRUPTED_BY_USER` 会结束当前轮，不继续旧任务链路。
+- ✅ 介入消息会作为新的用户消息进入下一轮 LLM。
 
-验收标准：
+设计文档：`docs/PHASE_6_LANGUAGE_INTERVENTION_DESIGN.md`
 
-- 执行非飞行工具时，用户输入可以中断当前工具。
-- 执行飞行工具时，用户输入可以触发 hover 并中断当前工具。
-- 中断后不会继续执行旧任务链路中的后续工具。
+当前边界：
+
+- LLM API 请求本身仍不能被同步队列即时取消。
+- 阻塞式 VLM/API 调用如果没有检查点，仍需要等调用返回后才能处理介入。
+- 完整 async runtime 和 `asyncio.Queue` 留到后续 multi-agent 阶段统一设计。
 
 #### Phase 7：安全门
 

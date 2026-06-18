@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from drone_agent.bus import MessageBus
 from drone_agent.config.schema import RuntimeProfile
 from drone_agent.runtime.task_state import TaskState
 from . import flight, perception, status
@@ -36,6 +37,7 @@ class ToolContext:
     profile: RuntimeProfile
     session_id: str = "adhoc"
     task_state: TaskState | None = None
+    message_bus: MessageBus | None = None
 
 
 @dataclass(frozen=True)
@@ -49,12 +51,12 @@ class ToolDefinition:
 
 def _takeoff_handler(context: ToolContext, arguments: dict[str, Any]) -> dict:
     """转发起飞工具调用。"""
-    return flight.takeoff(context.controller, arguments.get("height"), context.profile)
+    return flight.takeoff(context, arguments.get("height"))
 
 
 def _land_handler(context: ToolContext, _arguments: dict[str, Any]) -> dict:
     """转发降落工具调用。"""
-    return flight.land(context.controller, context.profile)
+    return flight.land(context)
 
 
 def _disarm_handler(context: ToolContext, _arguments: dict[str, Any]) -> dict:
@@ -64,7 +66,7 @@ def _disarm_handler(context: ToolContext, _arguments: dict[str, Any]) -> dict:
 
 def _timer_handler(_context: ToolContext, arguments: dict[str, Any]) -> dict:
     """转发计时工具调用。"""
-    return flight.timer(arguments.get("seconds"))
+    return flight.timer(_context, arguments.get("seconds"))
 
 
 def _hover_handler(context: ToolContext, _arguments: dict[str, Any]) -> dict:
@@ -95,21 +97,19 @@ def _flight_mode_status_handler(context: ToolContext, _arguments: dict[str, Any]
 def _rotate_handler(context: ToolContext, arguments: dict[str, Any]) -> dict:
     """转发旋转工具调用。"""
     return flight.rotate(
-        context.controller,
+        context,
         arguments.get("direction"),
         arguments.get("degrees"),
-        context.profile,
     )
 
 
 def _move_handler(context: ToolContext, arguments: dict[str, Any]) -> dict:
     """转发相对移动工具调用。"""
     return flight.move(
-        context.controller,
+        context,
         arguments.get("x"),
         arguments.get("y"),
         arguments.get("z"),
-        context.profile,
     )
 
 

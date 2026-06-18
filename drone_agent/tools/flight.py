@@ -6,7 +6,7 @@ import math
 import time
 from typing import Any
 
-from drone_agent.config.schema import RuntimeProfile
+from drone_agent.bus.intervention import interrupt_if_requested
 
 
 WAIT_FOR_POSITION_TIMEOUT_S = 3.0
@@ -43,8 +43,10 @@ def _wait_for_valid_position(controller: Any) -> bool:
     return controller.uav_position_is_valid()
 
 
-def takeoff(controller: Any, height: float, profile: RuntimeProfile) -> dict:
+def takeoff(context: Any, height: float) -> dict:
     """控制无人机原地起飞到目标高度。"""
+    controller = context.controller
+    profile = context.profile
     if not isinstance(height, (int, float)):
         return {
             "success": False,
@@ -92,6 +94,9 @@ def takeoff(controller: Any, height: float, profile: RuntimeProfile) -> dict:
 
     timeout = time.time() + profile.safety.action_timeout_s
     while time.time() < timeout:
+        interrupted = interrupt_if_requested(context, hover_on_flight_tool=True)
+        if interrupted is not None:
+            return interrupted
         if controller.is_at_target(target_position):
             time.sleep(0.5)
             return {
@@ -116,8 +121,10 @@ def takeoff(controller: Any, height: float, profile: RuntimeProfile) -> dict:
     }
 
 
-def land(controller: Any, profile: RuntimeProfile) -> dict:
+def land(context: Any) -> dict:
     """控制无人机执行降落。"""
+    controller = context.controller
+    profile = context.profile
     if not _wait_for_valid_position(controller):
         return {
             "success": False,
@@ -137,6 +144,9 @@ def land(controller: Any, profile: RuntimeProfile) -> dict:
 
     timeout = time.time() + max(profile.safety.action_timeout_s, LAND_TIMEOUT_S)
     while time.time() < timeout:
+        interrupted = interrupt_if_requested(context, hover_on_flight_tool=True)
+        if interrupted is not None:
+            return interrupted
         if not controller.uav_is_in_air():
             return {
                 "success": True,
@@ -166,7 +176,7 @@ def disarm(controller: Any) -> dict:
     }
 
 
-def timer(seconds: int) -> dict:
+def timer(context: Any, seconds: int) -> dict:
     """执行一个简单的计时等待工具。"""
     if not isinstance(seconds, int):
         return {
@@ -192,6 +202,10 @@ def timer(seconds: int) -> dict:
     deadline = time.monotonic() + seconds
     print(f"timer> 开始计时，目标时长 {seconds:.1f}s")
     while True:
+        interrupted = interrupt_if_requested(context, hover_on_flight_tool=False)
+        if interrupted is not None:
+            print()
+            return interrupted
         now = time.monotonic()
         remaining = deadline - now
         if remaining <= 0:
@@ -258,8 +272,10 @@ def return_home(controller: Any) -> dict:
     }
 
 
-def rotate(controller: Any, direction: str, degrees: float, profile: RuntimeProfile) -> dict:
+def rotate(context: Any, direction: str, degrees: float) -> dict:
     """在保持当前位置的同时执行定角度旋转。"""
+    controller = context.controller
+    profile = context.profile
     if direction not in {"left", "right"}:
         return {
             "success": False,
@@ -335,6 +351,9 @@ def rotate(controller: Any, direction: str, degrees: float, profile: RuntimeProf
     timeout = time.time() + max(profile.safety.action_timeout_s, degrees / 20.0)
 
     while time.time() < timeout:
+        interrupted = interrupt_if_requested(context, hover_on_flight_tool=True)
+        if interrupted is not None:
+            return interrupted
         heading = getattr(controller.vehicle_local_position, "heading", float("nan"))
         if not math.isfinite(heading):
             controller.stop_position_hold()
@@ -357,6 +376,9 @@ def rotate(controller: Any, direction: str, degrees: float, profile: RuntimeProf
             controller.start_position_hold(target_position, final_heading)
             settle_timeout = time.time() + 3.0
             while time.time() < settle_timeout:
+                interrupted = interrupt_if_requested(context, hover_on_flight_tool=True)
+                if interrupted is not None:
+                    return interrupted
                 if controller.is_at_yaw_target(final_heading):
                     return {
                         "success": True,
@@ -388,8 +410,10 @@ def rotate(controller: Any, direction: str, degrees: float, profile: RuntimeProf
     }
 
 
-def move(controller: Any, x: float, y: float, z: float, profile: RuntimeProfile) -> dict:
+def move(context: Any, x: float, y: float, z: float) -> dict:
     """按机体系 FRD 偏移执行相对移动。"""
+    controller = context.controller
+    profile = context.profile
     for name, value in (("x", x), ("y", y), ("z", z)):
         if not isinstance(value, (int, float)):
             return {
@@ -468,6 +492,9 @@ def move(controller: Any, x: float, y: float, z: float, profile: RuntimeProfile)
 
     timeout = time.time() + profile.safety.action_timeout_s
     while time.time() < timeout:
+        interrupted = interrupt_if_requested(context, hover_on_flight_tool=True)
+        if interrupted is not None:
+            return interrupted
         if controller.is_at_target(target_position):
             time.sleep(0.5)
             return {

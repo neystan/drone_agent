@@ -6,11 +6,13 @@ import threading
 from dataclasses import dataclass
 from typing import Any
 
+from drone_agent.bus import InputServer, MessageBus
 from drone_agent.config.loader import load_profile
 from drone_agent.logging.task_log import create_session_id, log_agent_message, log_task_state
 from drone_agent.llm.client import create_llm_client
 from drone_agent.llm.prompts import SYSTEM_PROMPT
 from drone_agent.runtime.task_state import TaskState, format_task_state_line
+from drone_agent.runtime.terminal import open_input_terminal
 from drone_agent.tools.registry import ToolContext
 
 
@@ -53,10 +55,14 @@ def _start_live_runtime(profile) -> None:
     executor = SingleThreadedExecutor()
     controller = None
     executor_thread = None
+    input_server = None
 
     try:
         session_id = create_session_id()
         task_state = TaskState(task_id=session_id)
+        message_bus = MessageBus()
+        input_server = InputServer(message_bus)
+        input_server.start()
         controller = Px4Controller(
             node_name=profile.ros.node_name,
             camera_scene_topic=profile.ros.camera_scene_topic,
@@ -69,11 +75,21 @@ def _start_live_runtime(profile) -> None:
             profile=profile,
             session_id=session_id,
             task_state=task_state,
+            message_bus=message_bus,
         )
         executor_thread.start()
+        input_terminal_started = _start_input_terminal(input_server, profile.name)
         log_agent_message(profile, context.session_id, "system", SYSTEM_PROMPT)
-        _run_interactive_loop(client, profile.llm.model, context, agent_loop)
+        _run_interactive_loop(
+            client,
+            profile.llm.model,
+            context,
+            agent_loop,
+            input_terminal_started=input_terminal_started,
+        )
     finally:
+        if input_server is not None:
+            input_server.stop()
         executor.shutdown()
         if controller is not None:
             controller.destroy_node()
@@ -96,15 +112,34 @@ def _configure_readline() -> None:
     readline.parse_and_bind("set convert-meta off")
 
 
-def _run_interactive_loop(client: Any, model: str, context: ToolContext, agent_loop: Any) -> None:
+def _run_interactive_loop(
+    client: Any,
+    model: str,
+    context: ToolContext,
+    agent_loop: Any,
+    *,
+    input_terminal_started: bool,
+) -> None:
     """运行命令行交互循环，并把每轮输入交给 agent loop。"""
     _configure_readline()
     messages: list[dict[str, Any]] = [{"role": "system", "content": SYSTEM_PROMPT}]
-    print("输入自然语言与 agent 对话，输入 exit 退出。")
+    if input_terminal_started:
+        print("输入终端已打开；当前终端只显示 agent、tool、ROS2 消息。")
+        print("请在输入终端输入自然语言或 HITL 确认，输入 exit 退出。")
+    else:
+        print("未能自动打开输入终端，回退为当前终端输入模式。")
+        _start_input_thread(context)
+        print("输入自然语言与 agent 对话，输入 exit 退出。")
     _record_task_state(context)
 
     while True:
-        user_input = input("you> ").strip()
+        if context.task_state is not None and context.task_state.intervention_pending:
+            user_input = context.task_state.intervention_message or ""
+            context.task_state.clear_intervention()
+        else:
+            if context.message_bus is None:
+                break
+            user_input = context.message_bus.consume_user_message().content.strip()
         if not user_input:
             continue
         if user_input.lower() in {"exit", "quit"}:
@@ -114,6 +149,33 @@ def _run_interactive_loop(client: Any, model: str, context: ToolContext, agent_l
         messages.append({"role": "user", "content": user_input})
         log_agent_message(context.profile, context.session_id, "user", user_input)
         agent_loop(client, model, messages, context)
+
+
+def _start_input_terminal(input_server: InputServer, profile_name: str) -> bool:
+    """根据输入服务信息打开独立输入终端。"""
+    info = input_server.info
+    return open_input_terminal(info.host, info.port, info.token, profile_name)
+
+
+def _start_input_thread(context: ToolContext) -> None:
+    """启动后台输入线程，把用户输入写入消息总线。"""
+    if context.message_bus is None:
+        return
+
+    def _read_input() -> None:
+        """持续读取终端输入并发布到消息总线。"""
+        while True:
+            try:
+                user_input = input("you> ").strip()
+            except EOFError:
+                context.message_bus.publish_user_message("exit")
+                return
+            if user_input:
+                context.message_bus.publish_user_message(user_input)
+            if user_input.lower() in {"exit", "quit"}:
+                return
+
+    threading.Thread(target=_read_input, daemon=True).start()
 
 
 def _record_task_state(context: ToolContext) -> None:

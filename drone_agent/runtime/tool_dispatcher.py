@@ -5,11 +5,11 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from drone_agent.bus.intervention import interrupt_if_requested
 from drone_agent.logging.task_log import log_task_state, log_tool_call
 from drone_agent.runtime.safety import (
     EndCurrentTurn,
     FLIGHT_TOOL_NAMES,
-    confirm_flight_tool,
     requires_human_in_the_loop,
     should_end_turn_after_tool_result,
 )
@@ -69,6 +69,12 @@ def dispatch_tool_call(context: ToolContext, call: Any) -> dict:
         _update_task_state(context, "tool_finished", tool_name, result=result)
         return result
 
+    result = interrupt_if_requested(context, hover_on_flight_tool=is_flight_tool)
+    if result is not None:
+        log_tool_call(context.profile, context.session_id, tool_name, arguments, result)
+        _update_task_state(context, "interrupted", tool_name, result=result)
+        raise EndCurrentTurn(result["message"], result)
+
     if requires_human_in_the_loop(context.profile, tool_name):
         _update_task_state(
             context,
@@ -78,7 +84,7 @@ def dispatch_tool_call(context: ToolContext, call: Any) -> dict:
             is_flight_tool=is_flight_tool,
         )
         try:
-            confirm_flight_tool(tool_name, arguments)
+            _confirm_flight_tool(context, tool_name, arguments)
         except EndCurrentTurn as exc:
             result = exc.tool_result or {
                 "success": False,
@@ -138,6 +144,42 @@ def _update_task_state(
     else:
         return
     _record_task_state(context)
+
+
+def _confirm_flight_tool(
+    context: ToolContext,
+    tool_name: str,
+    arguments: dict[str, Any],
+) -> None:
+    """通过消息总线等待飞行工具人工确认。"""
+    if context.message_bus is None:
+        raise EndCurrentTurn(
+            f"已取消本次 {tool_name} 执行。",
+            {
+                "success": False,
+                "error": "HUMAN_IN_THE_LOOP_UNAVAILABLE",
+                "message": "message bus is unavailable for human-in-the-loop confirmation",
+            },
+        )
+    prompt = (
+        f"human-in-the-loop> {tool_name} args={json.dumps(arguments, ensure_ascii=False)} "
+        "| 执行该飞行动作？[Y/N]: "
+    )
+    print(prompt, flush=True)
+    while True:
+        answer = context.message_bus.consume_user_message().content.strip().lower()
+        if answer == "y":
+            return
+        if answer == "n":
+            raise EndCurrentTurn(
+                f"已取消本次 {tool_name} 执行。",
+                {
+                    "success": False,
+                    "error": "HUMAN_IN_THE_LOOP_DECLINED",
+                    "message": f"已取消本次 {tool_name} 执行。",
+                },
+            )
+        print("human-in-the-loop> 请输入 Y 或 N。")
 
 
 def _record_task_state(context: ToolContext) -> None:

@@ -96,10 +96,25 @@ class TaskState:
         self.last_tool_name = tool_name
         self.last_tool_result = result
         self.last_error = str(result.get("error") or "")
+        if result.get("intervention_message"):
+            self.intervention_pending = True
+            self.intervention_message = str(result["intervention_message"])
         self.active_tool_name = None
         self.active_tool_arguments = None
         self.active_tool_is_flight_tool = False
         self.waiting_for_user_confirmation = False
+
+    def mark_intervention(self, message: str) -> None:
+        """记录一条等待处理的用户介入消息。"""
+        self.current_phase = "interrupted"
+        self.intervention_pending = True
+        self.intervention_message = message
+        self.last_error = "INTERRUPTED_BY_USER"
+
+    def clear_intervention(self) -> None:
+        """清空已经交给 LLM 处理的介入状态。"""
+        self.intervention_pending = False
+        self.intervention_message = None
 
     def snapshot(self) -> dict[str, Any]:
         """导出当前状态快照，供日志记录使用。"""

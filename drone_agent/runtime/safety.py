@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from drone_agent.config.schema import RuntimeProfile
@@ -34,26 +33,7 @@ def requires_human_in_the_loop(profile: RuntimeProfile, tool_name: str) -> bool:
     return tool_name in FLIGHT_TOOL_NAMES
 
 
-def confirm_flight_tool(tool_name: str, arguments: dict[str, Any]) -> None:
-    """在执行飞行工具前要求用户用 Y/N 明确确认。"""
-    while True: 
-        answer = input(f"human-in-the-loop> {tool_name} args={json.dumps(arguments, ensure_ascii=False)} "
-                        f"| 执行该飞行动作？[Y/N]: ").strip().lower()
-        if answer == "y":
-            return
-        if answer == "n":
-            raise EndCurrentTurn(
-                f"已取消本次 {tool_name} 执行。",
-                {
-                    "success": False,
-                    "error": "HUMAN_IN_THE_LOOP_DECLINED",
-                    "message": f"已取消本次 {tool_name} 执行。",
-                },
-            )
-        print("human-in-the-loop> 请输入 Y 或 N。")
-
-
 def should_end_turn_after_tool_result(result: dict[str, Any]) -> bool:
     """判断工具结果是否应直接结束当前轮。"""
     error = str(result.get("error", "")).strip()
-    return error.endswith("_TIMEOUT")
+    return error.endswith("_TIMEOUT") or error == "INTERRUPTED_BY_USER"
