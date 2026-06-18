@@ -11,7 +11,6 @@ FLIGHT_TOOL_NAMES = {
     "takeoff",
     "land",
     "disarm",
-    "hover",
     "return_home",
     "rotate",
     "move",

@@ -69,12 +69,14 @@ def dispatch_tool_call(context: ToolContext, call: Any) -> dict:
         _update_task_state(context, "tool_finished", tool_name, result=result)
         return result
 
+    #用户输入介入
     result = interrupt_if_requested(context, hover_on_flight_tool=is_flight_tool)
     if result is not None:
         log_tool_call(context.profile, context.session_id, tool_name, arguments, result)
         _update_task_state(context, "interrupted", tool_name, result=result)
         raise EndCurrentTurn(result["message"], result)
 
+    #要求用户确认
     if requires_human_in_the_loop(context.profile, tool_name):
         _update_task_state(
             context,
