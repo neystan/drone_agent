@@ -21,7 +21,7 @@
 | 路径 | 作用 |
 | --- | --- |
 | `docs/` | 项目文档目录。当前包含历史设计文档归档和本架构文档。 |
-| `drone_agent/` | 主 Python 包，包含配置、运行时、PX4 控制、工具、视觉、日志等核心代码。 |
+| `drone_agent/` | 主 Python 包，包含配置、运行时、消息总线、PX4 控制、工具、视觉、日志等核心代码。 |
 | `launch/` | ROS2 launch 文件，主要来自旧 ROS2 包壳，供相机/示例链路启动参考。 |
 | `resource/` | ROS2 `ament_python` 包索引资源目录。 |
 | `rviz/` | RViz 配置文件目录，主要用于旧链路的可视化配置。 |
@@ -80,7 +80,20 @@
 - `settings.json` 负责模型配置：`api_key`、`base_url`、`model`
 - `sim.yaml/real.yaml` 只负责飞控与运行环境配置
 
-### 4.3 `drone_agent/runtime/`
+### 4.3 `drone_agent/bus/`
+
+职责：管理用户输入消息的传递、独立输入终端接入和语言介入基础设施。
+
+| 路径 | 作用 |
+| --- | --- |
+| `drone_agent/bus/__init__.py` | bus 子包导出，统一暴露 `InputServer`、`MessageBus` 等对象。 |
+| `drone_agent/bus/queue.py` | 线程安全的同步消息队列封装。 |
+| `drone_agent/bus/message_bus.py` | `MessageBus` 与 `UserMessage` 定义，提供用户消息发布/消费接口。 |
+| `drone_agent/bus/input_server.py` | 主进程内的本地输入服务，接收独立输入终端发送的文本并写入 `MessageBus`。 |
+| `drone_agent/bus/input_terminal.py` | 独立输入终端客户端，负责显示 `you>` 并把用户输入回传主进程。 |
+| `drone_agent/bus/intervention.py` | 语言介入检测与中断结果构造，必要时触发悬停保护。 |
+
+### 4.4 `drone_agent/runtime/`
 
 职责：连接 LLM、工具系统和 ROS2 运行时。
 
@@ -88,11 +101,13 @@
 | --- | --- |
 | `drone_agent/runtime/__init__.py` | 运行时子包标记文件。 |
 | `drone_agent/runtime/agent_loop.py` | 单轮 Agent 对话循环，负责调用 LLM、执行工具调用、处理中断条件。 |
-| `drone_agent/runtime/runtime.py` | 运行总控。负责加载 profile、创建 ROS2 executor、创建 `Px4Controller`、创建 LLM client 并启动交互 loop。 |
+| `drone_agent/runtime/runtime.py` | 运行总控。负责加载 profile、创建 ROS2 executor、创建 `Px4Controller`、创建 LLM client、创建 `MessageBus`/`InputServer` 并启动交互 loop。 |
 | `drone_agent/runtime/safety.py` | Agent 侧安全判定逻辑，例如飞行工具是否需要 Y/N 人工确认，以及哪些结果会直接结束当前轮。 |
+| `drone_agent/runtime/task_state.py` | 任务状态数据结构、状态转移方法和彩色终端状态行格式化。 |
+| `drone_agent/runtime/terminal.py` | 根据当前系统环境自动打开独立输入终端，并构造 `python -m drone_agent.bus.input_terminal` 启动命令。 |
 | `drone_agent/runtime/tool_dispatcher.py` | 工具分发层。把模型输出的 tool call 解析后路由到具体工具处理函数。 |
 
-### 4.4 `drone_agent/llm/`
+### 4.5 `drone_agent/llm/`
 
 职责：管理大模型接入与系统提示词。
 
@@ -102,7 +117,7 @@
 | `drone_agent/llm/client.py` | 根据 `RuntimeProfile.llm` 创建 OpenAI-compatible 文本模型客户端。 |
 | `drone_agent/llm/prompts.py` | 存放系统提示词 `SYSTEM_PROMPT`，约束 agent 如何调用飞行、状态、视觉工具。 |
 
-### 4.5 `drone_agent/logging/`
+### 4.6 `drone_agent/logging/`
 
 职责：记录任务和工具调用日志。
 
@@ -111,7 +126,7 @@
 | `drone_agent/logging/__init__.py` | 日志子包标记文件。 |
 | `drone_agent/logging/task_log.py` | 以 JSONL 格式记录 agent 消息和工具调用结果。 |
 
-### 4.6 `drone_agent/px4/`
+### 4.7 `drone_agent/px4/`
 
 职责：封装 PX4 DDS 交互和底层控制能力。
 
@@ -123,20 +138,20 @@
 | `drone_agent/px4/status.py` | PX4 状态字段解析与可读化辅助函数。 |
 | `drone_agent/px4/topics.py` | PX4 DDS topic 常量定义。 |
 
-### 4.7 `drone_agent/tools/`
+### 4.8 `drone_agent/tools/`
 
 职责：LLM 可调用工具层。
 
 | 路径 | 作用 |
 | --- | --- |
 | `drone_agent/tools/__init__.py` | 工具子包标记文件。 |
-| `drone_agent/tools/flight.py` | 飞行动作工具实现，如起飞、降落、返航、悬停、旋转、移动、计时。 |
+| `drone_agent/tools/flight.py` | 飞行动作工具实现，如起飞、降落、返航、悬停、旋转、移动、计时，并在长时动作中检查语言介入。 |
 | `drone_agent/tools/perception.py` | 感知工具实现，如拍照和视觉分析，负责从 controller 取最新图像并调用视觉模块。 |
-| `drone_agent/tools/registry.py` | 工具注册表，定义工具名、schema、handler 之间的映射，并定义 `ToolContext`。 |
+| `drone_agent/tools/registry.py` | 工具注册表，定义工具名、schema、handler 之间的映射，并定义包含 `message_bus`/`task_state` 的 `ToolContext`。 |
 | `drone_agent/tools/schemas.py` | Function Calling 的工具 schema 定义。 |
 | `drone_agent/tools/status.py` | 状态查询工具，如当前位置、电池状态、飞行模式状态。 |
 
-### 4.8 `drone_agent/vision/`
+### 4.9 `drone_agent/vision/`
 
 职责：视觉模型与图像文件处理。
 
@@ -223,9 +238,12 @@
 2. `settings.example.json`
 3. `drone_agent/cli.py`
 4. `drone_agent/runtime/runtime.py`
-5. `drone_agent/config/loader.py`
-6. `drone_agent/px4/controller.py`
-7. `drone_agent/tools/registry.py`
-8. `drone_agent/tools/flight.py`
-9. `drone_agent/tools/perception.py`
-10. `drone_agent/vision/vlm.py`
+5. `drone_agent/runtime/terminal.py`
+6. `drone_agent/bus/message_bus.py`
+7. `drone_agent/bus/intervention.py`
+8. `drone_agent/config/loader.py`
+9. `drone_agent/px4/controller.py`
+10. `drone_agent/tools/registry.py`
+11. `drone_agent/tools/flight.py`
+12. `drone_agent/tools/perception.py`
+13. `drone_agent/vision/vlm.py`

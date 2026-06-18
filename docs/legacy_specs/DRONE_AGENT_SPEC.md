@@ -25,11 +25,12 @@
 当前主控链路是：
 
 ```text
-用户终端
+输出终端
   -> drone_agent_sim / drone_agent_real
   -> runtime.runtime.start_runtime()
   -> 创建 TaskState 实例
-  -> 创建 MessageBus 与输入线程
+  -> 创建 MessageBus 与 InputServer
+  -> 自动拉起独立输入终端 input_terminal.py
   -> runtime.agent_loop.agent_loop()
   -> runtime.tool_dispatcher.dispatch_tool_call()
   -> TaskState 状态转移（thinking / tool_running / tool_completed / interrupted / intervention_pending）
@@ -277,14 +278,22 @@ DRONE_AGENT_SETTINGS
 - 创建 LLM client
 - 创建 `TaskState` 实例
 - 创建 `MessageBus` 实例
+- 创建 `InputServer` 实例
 - 创建 `ToolContext`（含 `task_state`）
 - 生成 `session_id`
-- 启动输入线程，把用户输入写入 `MessageBus`
+- 自动打开独立输入终端
 - 从 `MessageBus` 消费用户输入并启动 agent loop
 - 每轮用户输入后调用 `task_state.start_new_goal()`
 - 每轮 agent loop 前后打印并记录任务状态
 - 配置 readline，修复中文输入删除问题
 - 退出时关闭 executor 和 ROS2
+
+当前默认交互模式是“双终端”：
+
+- 输出终端：显示 agent / tool / state / ROS2 日志
+- 输入终端：负责 `you>` 自然语言输入和 HITL 的 `Y/N`
+
+如果当前环境无法自动打开新终端，则回退为旧的单终端输入线程模式。
 
 `agent_loop.py`
 
@@ -370,7 +379,24 @@ DRONE_AGENT_SETTINGS
 - `UserMessage`
 - `MessageBus`
 
-当前主要用于把用户自然语言输入从输入线程传递给 runtime、dispatcher 和工具函数。
+当前主要用于把用户自然语言输入从独立输入终端或回退输入线程传递给 runtime、dispatcher 和工具函数。
+
+`input_server.py`
+
+定义：
+
+- `InputServerInfo`
+- `InputServer`
+
+负责在主进程中接收独立输入终端发送的用户消息。
+
+`input_terminal.py`
+
+负责运行在新终端中的输入客户端：
+
+- 显示 `you>`
+- 读取自然语言或 `Y/N`
+- 通过本地 socket 回传主进程
 
 `intervention.py`
 
@@ -689,7 +715,7 @@ DRONE_AGENT_SETTINGS
 - 没有 `logging/flight_log.py`
 - 没有 `runtime/types.py`
 - 没有高层 `skills/` 复合能力层
-- 没有 async runtime，当前语言介入仍基于同步 `MessageBus`、输入线程和工具内部检查点
+- 没有 async runtime，当前语言介入仍基于同步 `MessageBus`、独立输入终端或输入线程回退模式、以及工具内部检查点
 - 没有异步 multi-agent 架构
 
 这些都不是遗漏，而是当前版本尚未引入。
@@ -895,9 +921,9 @@ safety:
 
 ### 11.4 MessageBus 与语言介入
 
-当前 agent 执行工具时，用户无法在同一个终端输入语言打断正在执行的动作。这对真机测试不安全。
+当前第一版语言介入已经落地，用户可以在独立输入终端持续输入自然语言打断正在执行的动作。这解决了单终端输入被日志刷屏干扰的问题。
 
-后续应引入一个中心 `MessageBus` 队列。用户输入、Planner、MotorAgent、VisionAgent 都通过这个 bus 传递消息。
+当前已经引入一个中心 `MessageBus` 队列。后续 Planner、MotorAgent、VisionAgent 也可以继续通过这个 bus 传递消息。
 
 基础结构可以是：
 
@@ -917,6 +943,12 @@ safety:
 - 如果当前工具不是飞行控制相关工具，不需要 hover，但也必须停止当前工具执行，等待介入语句处理完成。
 - 介入消息被补充给 LLM / Planner。
 - Planner 处理介入语句后，再决定继续、修改任务、返航、降落或取消任务。
+
+当前实现边界：
+
+- `MessageBus` 可以排队保存多条用户消息。
+- 一次介入中断只会先消费一条消息。
+- 剩余消息继续保留在队列中，后续再消费。
 
 介入流程建议：
 
@@ -1041,8 +1073,10 @@ CLI 或 Web 界面后续应展示 Planner 的计划和分派情况。最小可�
 
 - ✅ 新增 `drone_agent/bus/queue.py`，封装同步消息队列。
 - ✅ 新增 `drone_agent/bus/message_bus.py`，提供用户消息发布与消费。
+- ✅ 新增 `drone_agent/bus/input_server.py`，接收独立输入终端消息。
+- ✅ 新增 `drone_agent/bus/input_terminal.py`，作为独立输入终端客户端。
 - ✅ 新增 `drone_agent/bus/intervention.py`，集中处理用户介入检测与中断结果。
-- ✅ 用户输入由输入线程写入 `MessageBus`。
+- ✅ 用户输入默认由独立输入终端写入 `MessageBus`。
 - ✅ runtime 主循环从 `MessageBus` 消费用户消息。
 - ✅ `ToolContext` 已携带 `message_bus`。
 - ✅ `tool_dispatcher.py` 在工具执行前检查介入消息。
@@ -1051,6 +1085,7 @@ CLI 或 Web 界面后续应展示 Planner 的计划和分派情况。最小可�
 - ✅ 飞行工具介入时先发送 hover 保护动作。
 - ✅ `INTERRUPTED_BY_USER` 会结束当前轮，不继续旧任务链路。
 - ✅ 介入消息会作为新的用户消息进入下一轮 LLM。
+- ✅ 输出终端与输入终端分离，降低日志对刷输入的干扰。
 
 设计文档：`docs/PHASE_6_LANGUAGE_INTERVENTION_DESIGN.md`
 

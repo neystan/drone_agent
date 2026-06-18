@@ -227,31 +227,70 @@ Phase 9：asyncio.Queue + async runtime + multi-agent
 
 这样不会在当前阶段同时改输入、LLM、tools、ROS2 executor 和消息通信，风险更可控。
 
-## 10. 输入线程设计
+## 10. 独立输入终端设计
 
-当前主线程直接 `input("you> ")`。
-
-Phase 6 建议调整为：
+当前实现不再默认依赖主终端中的 `input("you> ")`，而是拆成两个终端：
 
 ```text
-输入线程
-  -> 持续读取 input("you> ")
-  -> 写入 MessageBus
+输出终端
+  -> 显示 agent / tool / state / ROS2 日志
 
-主运行循环
-  -> 从 MessageBus 取用户消息
-  -> 调用 agent_loop
+输入终端
+  -> 显示 you>
+  -> 读取自然语言或 Y/N
+  -> 通过本地 socket 发送给主进程
 ```
 
-这样工具执行期间，输入线程仍然可以继续接收用户的新输入。
+主进程内新增一个最小本地输入服务：
 
-第一版不需要复杂命令系统，只保留：
+```text
+runtime.py
+  -> 创建 MessageBus
+  -> 创建 InputServer
+  -> 启动独立输入终端 input_terminal.py
+  -> 从 MessageBus 消费用户消息
+```
+
+这样做的原因：
+
+- 语言介入已经实现后，用户输入和运行时日志混在一个终端里，体验很差。
+- 真机测试时，用户需要在不中断日志观察的前提下持续输入介入消息或 HITL 确认。
+- 把输入端拆出去后，主终端可以只保留控制与观测输出。
+
+第一版独立输入终端仍只支持：
 
 - `exit`
 - `quit`
 - 普通自然语言输入
+- HITL 的 `Y/N`
 
-如果用户在工具执行期间输入普通自然语言，这条消息就被视为介入消息。
+如果当前环境无法自动打开新终端，程序会回退到旧的单终端输入线程模式。
+
+### 10.1 新增文件
+
+```text
+drone_agent/drone_agent/bus/input_server.py
+drone_agent/drone_agent/bus/input_terminal.py
+drone_agent/drone_agent/runtime/terminal.py
+```
+
+职责：
+
+- `input_server.py`：主进程内的本地输入服务，把独立终端消息写入 `MessageBus`
+- `input_terminal.py`：运行在新终端里的输入客户端
+- `runtime/terminal.py`：负责拼装 `python -m drone_agent.bus.input_terminal ...` 命令并自动打开新终端
+
+### 10.2 当前实现边界
+
+当前 `MessageBus` 可以排队保存多条用户输入，但一次介入中断只消费一条消息。
+
+这意味着：
+
+- 用户可以连续输入多条消息，消息不会丢
+- 当前工具被打断时，只会先取出队列中的第一条作为本次介入内容
+- 剩余消息继续留在队列里，等待后续运行时循环消费
+
+所以第一版支持“多条消息入队”，但还不支持“同一轮一次性合并处理多条介入消息”。
 
 ## 11. TaskState 扩展
 
