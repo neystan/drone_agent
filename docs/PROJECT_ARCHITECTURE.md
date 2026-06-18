@@ -69,7 +69,7 @@
 | --- | --- |
 | `drone_agent/config/__init__.py` | 配置子包标记文件。 |
 | `drone_agent/config/loader.py` | 配置加载器。读取 `sim.yaml/real.yaml` 和项目根目录 `settings.json`，组装 `RuntimeProfile`。 |
-| `drone_agent/config/schema.py` | 配置数据结构定义，包含 `RuntimeProfile`、`RosConfig`、`StorageConfig`、`ProviderConfig`、`VlmConfig`、`SafetyConfig`。 |
+| `drone_agent/config/schema.py` | 配置数据结构定义，包含 `RuntimeProfile`、`RosConfig`、`StorageConfig`、`ProviderConfig`、`VlmConfig`、`SafetyConfig`。`SafetyConfig` 当前还包含 `pre_takeoff_gate_enabled`、`require_battery_status_for_takeoff`、`min_battery_percent_for_takeoff`、`require_px4_status_ready_for_takeoff`。 |
 | `drone_agent/config/profiles/` | 运行 profile 目录，描述仿真/真机的 ROS、存储和安全差异。 |
 | `drone_agent/config/profiles/__init__.py` | profile 子目录的包标记文件，便于 setuptools 正确分发 YAML 配置。 |
 | `drone_agent/config/profiles/sim.yaml` | 仿真 profile，配置仿真节点名、相机 topic、图片目录、日志目录、安全阈值。 |
@@ -133,7 +133,7 @@
 | 路径 | 作用 |
 | --- | --- |
 | `drone_agent/px4/__init__.py` | PX4 子包标记文件。 |
-| `drone_agent/px4/controller.py` | `Px4Controller(Node)` 实现。负责 publisher/subscriber、状态缓存、心跳、命令发送、setpoint 发布、相机帧接收。 |
+| `drone_agent/px4/controller.py` | `Px4Controller(Node)` 实现。负责 publisher/subscriber、状态缓存、心跳、命令发送、setpoint 发布、相机帧接收，并记录 `vehicle_status_received` / `battery_status_received`。 |
 | `drone_agent/px4/frame.py` | 坐标系和角度工具，例如 body 坐标到 NED 坐标转换。 |
 | `drone_agent/px4/status.py` | PX4 状态字段解析与可读化辅助函数。 |
 | `drone_agent/px4/topics.py` | PX4 DDS topic 常量定义。 |
@@ -145,7 +145,7 @@
 | 路径 | 作用 |
 | --- | --- |
 | `drone_agent/tools/__init__.py` | 工具子包标记文件。 |
-| `drone_agent/tools/flight.py` | 飞行动作工具实现，如起飞、降落、返航、悬停、旋转、移动、计时，并在长时动作中检查语言介入。 |
+| `drone_agent/tools/flight.py` | 飞行动作工具实现，如起飞、降落、返航、悬停、旋转、移动、计时，并在长时动作中检查语言介入。当前 `takeoff()` 还会执行最小真机起飞前检查。 |
 | `drone_agent/tools/perception.py` | 感知工具实现，如拍照和视觉分析，负责从 controller 取最新图像并调用视觉模块。 |
 | `drone_agent/tools/registry.py` | 工具注册表，定义工具名、schema、handler 之间的映射，并定义包含 `message_bus`/`task_state` 的 `ToolContext`。 |
 | `drone_agent/tools/schemas.py` | Function Calling 的工具 schema 定义。 |

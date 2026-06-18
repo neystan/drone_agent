@@ -43,6 +43,55 @@ def _wait_for_valid_position(controller: Any) -> bool:
     return controller.uav_position_is_valid()
 
 
+def _check_pre_takeoff_requirements(controller: Any, profile: Any) -> dict[str, Any] | None:
+    """在真机起飞前执行最小安全检查。"""
+    safety = profile.safety
+    if not safety.pre_takeoff_gate_enabled:
+        return None
+
+    if safety.require_px4_status_ready_for_takeoff and not getattr(
+        controller,
+        "vehicle_status_received",
+        False,
+    ):
+        return {
+            "success": False,
+            "error": "TAKEOFF_GATE_STATUS_UNAVAILABLE",
+            "message": "px4 vehicle status is unavailable before takeoff",
+        }
+
+    if safety.require_battery_status_for_takeoff and not getattr(
+        controller,
+        "battery_status_received",
+        False,
+    ):
+        return {
+            "success": False,
+            "error": "TAKEOFF_GATE_BATTERY_UNAVAILABLE",
+            "message": "battery status is unavailable before takeoff",
+        }
+
+    if safety.require_battery_status_for_takeoff:
+        battery = controller.battery_status
+        remaining = getattr(battery, "remaining", -1.0)
+        if not isinstance(remaining, (int, float)) or remaining < 0.0:
+            return {
+                "success": False,
+                "error": "TAKEOFF_GATE_BATTERY_UNAVAILABLE",
+                "message": "battery remaining is unavailable before takeoff",
+            }
+        remaining_percent = float(remaining) * 100.0
+        if remaining_percent < safety.min_battery_percent_for_takeoff:
+            return {
+                "success": False,
+                "error": "TAKEOFF_GATE_BATTERY_TOO_LOW",
+                "message": "battery is below takeoff safety threshold",
+                "remaining_percent": remaining_percent,
+                "required_percent": safety.min_battery_percent_for_takeoff,
+            }
+    return None
+
+
 def takeoff(context: Any, height: float) -> dict:
     """控制无人机原地起飞到目标高度。"""
     controller = context.controller
@@ -68,6 +117,10 @@ def takeoff(context: Any, height: float) -> dict:
             "error": "HEIGHT_TOO_LARGE",
             "message": "height exceeds safety limit",
         }
+
+    precheck_result = _check_pre_takeoff_requirements(controller, profile)
+    if precheck_result is not None:
+        return precheck_result
 
     if not _wait_for_valid_position(controller):
         return {

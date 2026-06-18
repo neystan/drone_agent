@@ -98,6 +98,8 @@ class Px4Controller(Node):
         self.vehicle_local_position = VehicleLocalPosition()
         self.vehicle_status = VehicleStatus()
         self.battery_status = BatteryStatus()
+        self.vehicle_status_received = False
+        self.battery_status_received = False
         self.bridge = CvBridge()
         self.latest_rgb_frame = None
         self.position_tolerance = DEFAULT_POSITION_TOLERANCE_M
@@ -121,10 +123,12 @@ class Px4Controller(Node):
     def vehicle_status_callback(self, msg: VehicleStatus) -> None:
         """更新飞控状态缓存。"""
         self.vehicle_status = msg
+        self.vehicle_status_received = True
 
     def battery_status_callback(self, msg: BatteryStatus) -> None:
         """更新电池状态缓存。"""
         self.battery_status = msg
+        self.battery_status_received = True
 
     def rgb_image_callback(self, msg: Image) -> None:
         """把 ROS 图像消息转换并缓存为 OpenCV 图像。"""

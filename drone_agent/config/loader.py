@@ -145,5 +145,9 @@ def _build_profile(raw: dict[str, Any], settings: dict[str, Any]) -> RuntimeProf
             max_rotation_deg=float(safety["max_rotation_deg"]),
             action_timeout_s=float(safety["action_timeout_s"]),
             hover_on_timeout=bool(safety["hover_on_timeout"]),
+            pre_takeoff_gate_enabled=bool(safety["pre_takeoff_gate_enabled"]),
+            require_battery_status_for_takeoff=bool(safety["require_battery_status_for_takeoff"]),
+            min_battery_percent_for_takeoff=float(safety["min_battery_percent_for_takeoff"]),
+            require_px4_status_ready_for_takeoff=bool(safety["require_px4_status_ready_for_takeoff"]),
         ),
     )

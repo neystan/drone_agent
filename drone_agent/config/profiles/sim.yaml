@@ -18,3 +18,7 @@ safety:
   max_rotation_deg: 360
   action_timeout_s: 30
   hover_on_timeout: true
+  pre_takeoff_gate_enabled: false
+  require_battery_status_for_takeoff: false
+  min_battery_percent_for_takeoff: 0
+  require_px4_status_ready_for_takeoff: false

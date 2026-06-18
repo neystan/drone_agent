@@ -86,6 +86,10 @@ class SafetyConfig:
     max_rotation_deg: float
     action_timeout_s: float
     hover_on_timeout: bool
+    pre_takeoff_gate_enabled: bool
+    require_battery_status_for_takeoff: bool
+    min_battery_percent_for_takeoff: float
+    require_px4_status_ready_for_takeoff: bool
 
     def __post_init__(self) -> None:
         """校验安全阈值是否为正数。"""
@@ -99,6 +103,8 @@ class SafetyConfig:
             raise ValueError("max_rotation_deg must be positive")
         if self.action_timeout_s <= 0:
             raise ValueError("action_timeout_s must be positive")
+        if not 0.0 <= self.min_battery_percent_for_takeoff <= 100.0:
+            raise ValueError("min_battery_percent_for_takeoff must be within [0, 100]")
 
 
 @dataclass(frozen=True)

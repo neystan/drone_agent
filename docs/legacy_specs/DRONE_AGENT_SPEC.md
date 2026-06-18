@@ -218,6 +218,10 @@ drone_agent/
 - `max_rotation_deg`
 - `action_timeout_s`
 - `hover_on_timeout`
+- `pre_takeoff_gate_enabled`
+- `require_battery_status_for_takeoff`
+- `min_battery_percent_for_takeoff`
+- `require_px4_status_ready_for_takeoff`
 
 `loader.py`
 
@@ -426,6 +430,14 @@ DRONE_AGENT_SETTINGS
 - 只要开启 `human_in_the_loop_for_flight_tools`
 - 且工具名属于 `FLIGHT_TOOL_NAMES`
 - 就在工具执行前强制 Y/N 人工确认
+
+Phase 7 当前已落地的最小扩展是：
+
+- `takeoff()` 内增加真机起飞前检查
+- 可检查 PX4 状态是否已收到
+- 可检查电池状态是否已收到
+- 可检查电量是否高于起飞阈值
+- 检查失败时直接拒绝起飞
 
 输入：
 
@@ -1088,6 +1100,27 @@ CLI 或 Web 界面后续应展示 Planner 的计划和分派情况。最小可�
 - ✅ 输出终端与输入终端分离，降低日志对刷输入的干扰。
 
 设计文档：`docs/PHASE_6_LANGUAGE_INTERVENTION_DESIGN.md`
+
+#### Phase 7：起飞前安全门（已完成最小版）
+
+目标：只在 `takeoff()` 内补少量真机起飞前检查，不新增外层安全门系统。
+
+完成内容：
+
+- ✅ `SafetyConfig` 新增 `pre_takeoff_gate_enabled`
+- ✅ `SafetyConfig` 新增 `require_battery_status_for_takeoff`
+- ✅ `SafetyConfig` 新增 `min_battery_percent_for_takeoff`
+- ✅ `SafetyConfig` 新增 `require_px4_status_ready_for_takeoff`
+- ✅ `real.yaml` 默认启用最小起飞前检查
+- ✅ `sim.yaml` 默认关闭最小起飞前检查
+- ✅ `Px4Controller` 记录 `vehicle_status_received`
+- ✅ `Px4Controller` 记录 `battery_status_received`
+- ✅ `takeoff()` 在现有参数检查后增加真机起飞前检查
+- ✅ 电池状态不可读时拒绝起飞
+- ✅ 电量低于阈值时拒绝起飞
+- ✅ PX4 状态不可读时拒绝起飞
+
+设计文档：`docs/PHASE_7_SAFETY_GATES_DESIGN.md`
 
 当前边界：
 
