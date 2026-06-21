@@ -1159,6 +1159,7 @@ CLI 或 Web 界面后续应展示 Planner 的计划和分派情况。最小可�
 范围：
 
 - Phase 8 第一版只支持项目内置 `drone_agent/skills/` 中的手写 skill。
+- 所有已启用 skill 的 `name + description` 会组成全局 `skills index`。
 - runtime 根据用户输入选择 0 或 1 个 skill。
 - 选中的 skill 正文会注入本轮 LLM 上下文。
 - skill 只影响 Agent 的规划和工具选择，不直接生成飞控代码。
@@ -1169,6 +1170,7 @@ CLI 或 Web 界面后续应展示 Planner 的计划和分派情况。最小可�
 验收标准：
 
 - Agent 能加载项目内置 `SKILL.md`。
+- Agent 能构建全局 `skills index`。
 - `skill_creator` 能生成标准格式的 `SKILL.md` 草稿。
 - Agent 能根据关键词选择 `visual-search` 或 `real-low-altitude-test`。
 - 没有匹配 skill 的普通对话不注入 skill。

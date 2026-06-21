@@ -153,22 +153,25 @@ requires_confirmation: true
 
 ### 6.1 上下文注入边界
 
-Phase 8 第一版采用两级注入：
+Phase 8 第一版采用三层结构：
 
 ```text
-启动/每轮选择前：
-  代码读取 frontmatter
-  只用于 selector 判断
-  不把所有 skill 正文注入 LLM
+第 1 层：SYSTEM_PROMPT
+  保留现有全局飞控约束
 
-某个 skill 被选中后：
-  注入该 skill 的 Markdown 正文
-  同时附带关键 frontmatter 字段摘要
+第 2 层：Skills Index
+  注入所有已启用 skill 的 name + description
+  让模型知道当前有哪些 skill 可以使用
+
+第 3 层：Active Skill
+  只在命中某个 skill 时注入该 skill 的正文
+  同时附带少量关键约束字段
 ```
 
 也就是说：
 
-- `name`、`description`、`enabled`、`mode`、`trigger_keywords`、`allowed_tools`、`forbidden_tools` 主要给代码使用。
+- `name`、`description` 会组成全局 `skills index`，常驻在对话上下文中。
+- `enabled`、`mode`、`trigger_keywords` 主要给代码使用，用于过滤和选择 skill。
 - 被选中的 skill 会把正文注入 LLM。
 - 被选中的 skill 也会把 `name`、`allowed_tools`、`forbidden_tools` 这类关键字段作为简短约束注入 LLM。
 - 未选中的 skill 不会把正文注入 LLM。
@@ -282,7 +285,39 @@ Phase 8 第一版采用两级注入：
 - 关键词匹配更容易调试。
 - 飞控任务需要可解释的触发路径。
 
-## 8. Skill 注入方式
+## 8. Skills Index 与 Active Skill
+
+### 8.1 Skills Index
+
+每轮调用 LLM 前，runtime 先把所有已启用 skill 的简短索引放进上下文。
+
+格式建议如下：
+
+```markdown
+# Skills Index
+
+- visual-search: 当用户要求寻找、搜索、观察或对准目标时使用。
+- real-low-altitude-test: 当用户要求真机低高度试飞、悬停测试、低高度移动测试时使用。
+```
+
+这层只包含：
+
+- `name`
+- `description`
+
+不包含：
+
+- 全部 frontmatter
+- 全部正文
+- 示例和流程细节
+
+作用：
+
+- 让模型知道“当前系统有哪些 skill”
+- 帮助模型理解 runtime 选中某个 skill 的语义
+- 避免把所有 skill 正文长期塞进上下文
+
+### 8.2 Active Skill
 
 当前 `runtime.py` 会创建基础 system prompt：
 
@@ -290,13 +325,13 @@ Phase 8 第一版采用两级注入：
 SYSTEM_PROMPT
 ```
 
-Phase 8 建议新增一个轻量 prompt 构造函数：
+Phase 8 建议新增一个轻量 prompt 构造函数，用于在每轮组装：
 
 ```text
 build_turn_messages(base_messages, selected_skill)
 ```
 
-每轮调用 LLM 前，如果选中了 skill，就在本轮消息中注入：
+如果本轮命中了 skill，就再额外注入：
 
 ```markdown
 # Active Skill
@@ -313,8 +348,9 @@ Forbidden tools: disarm
 注意：
 
 - 不修改全局 `SYSTEM_PROMPT` 常量。
-- 不把所有 skills 都长期塞进上下文。
+- `skills index` 可以常驻，但只包含 `name + description`。
 - 每轮最多注入一个 skill。
+- 只有命中的 `active skill` 才注入正文。
 - skill 注入只影响 LLM 规划，不改变 tool schema。
 
 ### 8.1 为什么不采用 summary + path
@@ -329,7 +365,7 @@ nanobot 可以把所有 skill 摘要和文件路径放进上下文，让 agent �
 - 只告诉模型路径没有实际作用。
 - 飞控任务需要 runtime 明确选择 skill，而不是让模型自己找文件。
 
-所以第一版由代码完成选择，再把选中的 skill 正文直接注入本轮上下文。
+所以第一版由代码完成选择，再把选中的 `active skill` 正文直接注入本轮上下文。
 
 ## 9. 与现有安全机制的关系
 
