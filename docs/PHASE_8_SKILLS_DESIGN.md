@@ -6,12 +6,13 @@
 
 Phase 8 的目标是引入 Claude/Codex 风格的 `skills`，让 `drone_agent` 可以复用用户确认过的任务经验和工作流程。
 
-第一版只做一件事：
+第一版只做两件事：
 
 - 支持项目内置 `drone_agent/skills/` 中的手写 `SKILL.md`。
 - runtime 根据用户输入选择 0 或 1 个 skill。
 - 将选中的 skill 正文注入本轮 LLM 上下文。
 - skill 只指导 Agent 如何调用现有 `tools`，不新增执行入口。
+- 提供内置 `skill_creator`，用于创建和校验标准格式的手写 skill。
 
 ## 2. 核心原则
 
@@ -24,7 +25,7 @@ Phase 8 遵守以下原则：
 - skill 不能绕过 `tool_dispatcher.py`。
 - skill 不能绕过 HITL、语言介入、超时和起飞前安全门。
 - 第一版不支持 skill 自带可执行脚本。
-- 第一版不支持从日志自动生成并启用 skill。
+- 第一版不支持从日志自动生成并启用 skill，但需要提供人工创建 skill 的 `skill_creator`。
 - 第一版不支持 workspace skill 覆盖内置 skill。
 
 ## 3. Skill 与 Tool 的区别
@@ -87,6 +88,7 @@ drone_agent/
     loader.py
     selector.py
     validator.py
+    skill_creator.py
     visual-search/
       SKILL.md
     real-low-altitude-test/
@@ -98,6 +100,7 @@ drone_agent/
 - `loader.py`：扫描和读取内置 skills。
 - `selector.py`：根据用户输入和 profile 选择 skill。
 - `validator.py`：校验 skill 结构和 frontmatter。
+- `skill_creator.py`：根据用户提供的名称、描述、触发词和正文模板创建手写 skill 草稿，并复用 validator 校验。
 - `visual-search/`：内置视觉搜索流程 skill。
 - `real-low-altitude-test/`：内置真机低高度试飞流程 skill。
 
@@ -112,7 +115,10 @@ init_skill.py
 
 ## 6. SKILL.md 格式
 
-第一版 `SKILL.md` 采用固定结构。
+第一版 `SKILL.md` 采用固定结构。一个 skill 由两部分组成：
+
+- frontmatter：机器可读的索引信息，用于加载、过滤、选择和日志记录。
+- Markdown 正文：模型可读的任务方法论，只在 skill 被选中后注入本轮上下文。
 
 示例：
 
@@ -145,7 +151,30 @@ requires_confirmation: true
 ## 示例
 ```
 
-### 6.1 frontmatter 字段
+### 6.1 上下文注入边界
+
+Phase 8 第一版采用两级注入：
+
+```text
+启动/每轮选择前：
+  代码读取 frontmatter
+  只用于 selector 判断
+  不把所有 skill 正文注入 LLM
+
+某个 skill 被选中后：
+  注入该 skill 的 Markdown 正文
+  同时附带关键 frontmatter 字段摘要
+```
+
+也就是说：
+
+- `name`、`description`、`enabled`、`mode`、`trigger_keywords`、`allowed_tools`、`forbidden_tools` 主要给代码使用。
+- 被选中的 skill 会把正文注入 LLM。
+- 被选中的 skill 也会把 `name`、`allowed_tools`、`forbidden_tools` 这类关键字段作为简短约束注入 LLM。
+- 未选中的 skill 不会把正文注入 LLM。
+- 第一版不做 `always skill`，避免长期污染飞控 system prompt。
+
+### 6.2 frontmatter 字段
 
 `name`
 
@@ -192,6 +221,43 @@ requires_confirmation: true
 - 说明该 skill 涉及飞行动作时应更倾向等待确认。
 - 实际 HITL 仍由现有 `human_in_the_loop_for_flight_tools` 控制。
 
+### 6.3 正文字段
+
+正文是模型真正会读到的任务指导内容。
+
+第一版建议固定包含：
+
+`使用场景`
+
+- 说明什么时候应该使用这个 skill。
+
+`工作流程`
+
+- 给出任务执行步骤。
+- 应尽量写成简洁、有顺序的流程。
+
+`可调用工具`
+
+- 说明该 skill 推荐使用哪些现有 tools。
+- 这里只是提示词约束，不改变真实 tool schema。
+
+`安全约束`
+
+- 写清楚哪些动作必须保守。
+- 写清楚哪些情况下应停止继续执行。
+
+`失败处理`
+
+- 写清楚工具失败、超时、视觉低置信度、用户介入时如何响应。
+
+`反例`
+
+- 写清楚哪些请求不应该使用该 skill。
+
+`示例`
+
+- 给出典型用户请求和推荐工具调用顺序。
+
 ## 7. Skill 选择流程
 
 第一版采用简单、可解释的关键词选择。
@@ -237,6 +303,10 @@ build_turn_messages(base_messages, selected_skill)
 
 当前用户请求匹配以下 skill。你必须遵守该 skill 的流程和安全约束。
 
+Skill: visual-search
+Allowed tools: analyze_view, rotate, move, hover, timer
+Forbidden tools: disarm
+
 <SKILL.md 正文>
 ```
 
@@ -246,6 +316,20 @@ build_turn_messages(base_messages, selected_skill)
 - 不把所有 skills 都长期塞进上下文。
 - 每轮最多注入一个 skill。
 - skill 注入只影响 LLM 规划，不改变 tool schema。
+
+### 8.1 为什么不采用 summary + path
+
+nanobot 可以把所有 skill 摘要和文件路径放进上下文，让 agent 自己决定是否读取某个 `SKILL.md`。
+
+`drone_agent` 第一版不采用这种方式。
+
+原因：
+
+- 当前 LLM 没有 `read_file` 工具。
+- 只告诉模型路径没有实际作用。
+- 飞控任务需要 runtime 明确选择 skill，而不是让模型自己找文件。
+
+所以第一版由代码完成选择，再把选中的 skill 正文直接注入本轮上下文。
 
 ## 9. 与现有安全机制的关系
 
@@ -285,9 +369,70 @@ Phase 8 建议记录每轮选中的 skill。
 }
 ```
 
-## 11. 内置 Skill 建议
+## 11. skill_creator
 
-### 11.1 visual-search
+Phase 8 第一版需要提供 `skill_creator`，但它的定位是“人工创建手写 skill 的辅助工具”，不是自进化系统。
+
+### 11.1 作用
+
+`skill_creator` 负责：
+
+- 根据用户提供的名称生成合法 skill 目录名。
+- 创建标准 `SKILL.md` 模板。
+- 填入基础 frontmatter。
+- 创建必要的正文小节。
+- 调用 `validator.py` 校验结果。
+
+它不负责：
+
+- 不读取历史日志自动总结经验。
+- 不自动决定启用某个 skill。
+- 不生成可执行 Python 脚本。
+- 不修改飞控工具代码。
+
+### 11.2 推荐使用方式
+
+第一版建议提供一个 Python 函数和一个可选 CLI。
+
+函数接口：
+
+```python
+create_skill(
+    name: str,
+    description: str,
+    trigger_keywords: list[str],
+    allowed_tools: list[str],
+    mode: list[str],
+) -> Path
+```
+
+可选 CLI：
+
+```text
+python -m drone_agent.skills.skill_creator visual-search
+```
+
+CLI 第一版只做模板初始化，不需要复杂交互。
+
+### 11.3 和自进化的关系
+
+后续如果实现“从日志提炼 skill”，也应该复用 `skill_creator`。
+
+流程应该是：
+
+```text
+日志分析器生成候选内容
+  -> skill_creator 生成 draft SKILL.md
+  -> 用户 review
+  -> 用户确认
+  -> enabled: true
+```
+
+当前 Phase 8 只实现其中的 `skill_creator 生成标准草稿`，不实现日志分析器。
+
+## 12. 内置 Skill 建议
+
+### 12.1 visual-search
 
 适用场景：
 
@@ -311,7 +456,7 @@ analyze_view
 - 每次移动或旋转后必须重新观察。
 - 视觉置信度低时应停止并说明。
 
-### 11.2 real-low-altitude-test
+### 12.2 real-low-altitude-test
 
 适用场景：
 
@@ -335,13 +480,12 @@ battery_status
 - 起飞前必须确认状态。
 - 异常时优先 hover 或 land。
 
-## 12. 第一版不做的内容
+## 13. 第一版不做的内容
 
 Phase 8 不做：
 
-- 不做 skill creator 自动生成 skill。
 - 不从日志自动提炼 skill。
-- 不自动写入 `SKILL.md`。
+- 不让 skill creator 自动从日志写入 `SKILL.md`。
 - 不启用 skill 自带脚本。
 - 不支持 skill 打包分发。
 - 不支持 workspace 覆盖内置 skill。
@@ -350,41 +494,44 @@ Phase 8 不做：
 
 这些能力可以留到后续：
 
-- Phase 8.2：skill creator 草稿生成。
-- Phase 8.3：用户确认后写入 draft skill。
+- Phase 8.2：从日志生成 skill 候选内容。
+- Phase 8.3：用户确认后启用 draft skill。
 - Phase 9：multi-agent 与异步 bus。
 
-## 13. 实施顺序
+## 14. 实施顺序
 
 建议按下面顺序实现：
 
 1. 新增 `drone_agent/skills/` 包。
 2. 新增 `validator.py`，校验 `SKILL.md`。
-3. 新增 `loader.py`，加载内置 skills。
-4. 新增 `selector.py`，按关键词选择 skill。
-5. 新增 `visual-search/SKILL.md`。
-6. 新增 `real-low-altitude-test/SKILL.md`。
-7. 修改 runtime/agent loop，在每轮 LLM 调用前注入选中的 skill。
-8. 修改日志，记录本轮 `selected_skill`。
-9. 更新 `PROJECT_ARCHITECTURE.md` 和 `DRONE_AGENT_SPEC.md`。
+3. 新增 `skill_creator.py`，创建标准手写 skill 草稿。
+4. 新增 `loader.py`，加载内置 skills。
+5. 新增 `selector.py`，按关键词选择 skill。
+6. 新增 `visual-search/SKILL.md`。
+7. 新增 `real-low-altitude-test/SKILL.md`。
+8. 修改 runtime/agent loop，在每轮 LLM 调用前注入选中的 skill。
+9. 修改日志，记录本轮 `selected_skill`。
+10. 更新 `PROJECT_ARCHITECTURE.md` 和 `DRONE_AGENT_SPEC.md`。
 
-## 14. 验收标准
+## 15. 验收标准
 
 Phase 8 完成后应满足：
 
 - 启动时能加载项目内置 skills。
 - 无效 `SKILL.md` 会被清晰拒绝或跳过。
+- `skill_creator` 能生成标准格式的 `SKILL.md` 草稿。
 - 用户输入“寻找目标”时能选中 `visual-search`。
 - 用户输入“真机低高度试飞”时能选中 `real-low-altitude-test`。
 - 没有匹配 skill 的普通对话不注入 skill。
 - 每轮最多注入一个 skill。
+- 未选中的 skill 正文不会注入上下文。
 - tool schema 不因 skill 改变。
 - 飞行工具仍然触发 HITL、语言介入和安全门。
 - 日志能看到本轮使用了哪个 skill。
 
-## 15. 后续扩展
+## 16. 后续扩展
 
-Phase 8.2 可以再考虑 skill creator。
+Phase 8.2 可以再考虑从日志生成候选 skill。
 
 推荐流程：
 

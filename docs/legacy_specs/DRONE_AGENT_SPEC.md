@@ -1163,14 +1163,17 @@ CLI 或 Web 界面后续应展示 Planner 的计划和分派情况。最小可�
 - 选中的 skill 正文会注入本轮 LLM 上下文。
 - skill 只影响 Agent 的规划和工具选择，不直接生成飞控代码。
 - skill 不能绕过 `tools/`、HITL、语言介入、超时和起飞前安全门。
+- 需要提供 `skill_creator`，用于人工创建和校验标准格式的手写 skill。
 - 第一版不支持 `scripts/`、workspace 覆盖、打包分发或从日志自动生成 skill。
 
 验收标准：
 
 - Agent 能加载项目内置 `SKILL.md`。
+- `skill_creator` 能生成标准格式的 `SKILL.md` 草稿。
 - Agent 能根据关键词选择 `visual-search` 或 `real-low-altitude-test`。
 - 没有匹配 skill 的普通对话不注入 skill。
 - 每轮最多注入一个 skill。
+- 未选中的 skill 正文不会注入上下文。
 - 日志能记录本轮使用的 skill。
 - skill 不改变 tool schema，也不新增飞控执行入口。
 
