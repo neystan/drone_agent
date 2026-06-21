@@ -13,6 +13,9 @@ from drone_agent.llm.client import create_llm_client
 from drone_agent.llm.prompts import SYSTEM_PROMPT
 from drone_agent.runtime.task_state import TaskState, format_task_state_line
 from drone_agent.runtime.terminal import open_input_terminal
+from drone_agent.skills.context import build_skills_index
+from drone_agent.skills.loader import Skill, SkillsLoader
+from drone_agent.skills.selector import select_skill
 from drone_agent.tools.registry import ToolContext
 
 
@@ -70,6 +73,7 @@ def _start_live_runtime(profile) -> None:
         executor.add_node(controller)
         executor_thread = threading.Thread(target=executor.spin, daemon=True)
         client = create_llm_client(profile)
+        skills = SkillsLoader().load_skills()
         context = ToolContext(
             controller=controller,
             profile=profile,
@@ -85,6 +89,7 @@ def _start_live_runtime(profile) -> None:
             profile.llm.model,
             context,
             agent_loop,
+            skills=skills,
             input_terminal_started=input_terminal_started,
         )
     finally:
@@ -118,11 +123,16 @@ def _run_interactive_loop(
     context: ToolContext,
     agent_loop: Any,
     *,
+    skills: list[Skill],
     input_terminal_started: bool,
 ) -> None:
     """运行命令行交互循环，并把每轮输入交给 agent loop。"""
     _configure_readline()
     messages: list[dict[str, Any]] = [{"role": "system", "content": SYSTEM_PROMPT}]
+    skills_index = build_skills_index(skills, context.profile.name)
+    if skills_index:
+        messages.append({"role": "system", "content": skills_index})
+        log_agent_message(context.profile, context.session_id, "system", skills_index)
     if input_terminal_started:
         print("输入终端已打开；当前终端只显示 agent、tool、ROS2 消息。")
         print("请在输入终端输入自然语言或 HITL 确认，输入 exit 退出。")
@@ -146,9 +156,16 @@ def _run_interactive_loop(
             break
         if context.task_state is not None:
             context.task_state.start_new_goal(user_input)
+        active_skill = select_skill(user_input, context.profile.name, skills)
         messages.append({"role": "user", "content": user_input})
-        log_agent_message(context.profile, context.session_id, "user", user_input)
-        agent_loop(client, model, messages, context)
+        log_agent_message(
+            context.profile,
+            context.session_id,
+            "user",
+            user_input,
+            selected_skill=active_skill.name if active_skill is not None else None,
+        )
+        agent_loop(client, model, messages, context, active_skill=active_skill)
 
 
 def _start_input_terminal(input_server: InputServer, profile_name: str) -> bool:

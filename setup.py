@@ -24,6 +24,7 @@ setup(
     ],
     package_data={
         "drone_agent.config": ["profiles/*.yaml"],
+        "drone_agent.skills": ["*/SKILL.md"],
     },
     include_package_data=True,
     install_requires=[

@@ -726,7 +726,7 @@ Phase 7 当前已落地的最小扩展是：
 - 没有单独的 `vision/camera.py`
 - 没有 `logging/flight_log.py`
 - 没有 `runtime/types.py`
-- 没有高层 `skills/` 复合能力层
+- 已有说明型 `skills/` 第一版，但没有可执行 skill 脚本和自进化生成链路
 - 没有 async runtime，当前语言介入仍基于同步 `MessageBus`、独立输入终端或输入线程回退模式、以及工具内部检查点
 - 没有异步 multi-agent 架构
 
@@ -1152,7 +1152,7 @@ CLI 或 Web 界面后续应展示 Planner 的计划和分派情况。最小可�
 - 用户能在 profile 中选择启用或关闭具体安全门。
 - 真机 profile 默认比仿真 profile 更保守。
 
-#### Phase 8：Skills
+#### Phase 8：Skills（已完成第一版）
 
 目标：引入 Claude/Codex 风格的 `SKILL.md` 能力包，让 Agent 可以复用经过确认的任务经验和流程。
 
@@ -1178,6 +1178,18 @@ CLI 或 Web 界面后续应展示 Planner 的计划和分派情况。最小可�
 - 未选中的 skill 正文不会注入上下文。
 - 日志能记录本轮使用的 skill。
 - skill 不改变 tool schema，也不新增飞控执行入口。
+
+当前实现文件：
+
+- `drone_agent/skills/validator.py`
+- `drone_agent/skills/skill_creator.py`
+- `drone_agent/skills/loader.py`
+- `drone_agent/skills/selector.py`
+- `drone_agent/skills/context.py`
+- `drone_agent/skills/visual-search/SKILL.md`
+- `drone_agent/skills/real-low-altitude-test/SKILL.md`
+- `runtime.py` 构建 `skills index` 并记录 `selected_skill`
+- `agent_loop.py` 临时注入本轮 `active skill`
 
 设计文档：`docs/PHASE_8_SKILLS_DESIGN.md`
 

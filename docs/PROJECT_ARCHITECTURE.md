@@ -39,7 +39,7 @@
 | `settings.example.json` | 模型配置模板文件，示例展示 `llm` 和 `vlm` 的 `api_key/base_url/model` 字段。 |
 | `settings.json` | 本地私有模型配置文件，实际运行读取它。已被 `.gitignore` 忽略。 |
 | `setup.cfg` | ROS2 Python 安装脚本路径配置。 |
-| `setup.py` | ROS2 `ament_python` 打包入口，注册资源文件、launch、rviz 和启动脚本。 |
+| `setup.py` | ROS2 `ament_python` 打包入口，注册资源文件、launch、rviz、启动脚本和内置 skill 文件。 |
 
 ## 3. `docs/` 文档目录
 
@@ -100,8 +100,8 @@
 | 路径 | 作用 |
 | --- | --- |
 | `drone_agent/runtime/__init__.py` | 运行时子包标记文件。 |
-| `drone_agent/runtime/agent_loop.py` | 单轮 Agent 对话循环，负责调用 LLM、执行工具调用、处理中断条件。 |
-| `drone_agent/runtime/runtime.py` | 运行总控。负责加载 profile、创建 ROS2 executor、创建 `Px4Controller`、创建 LLM client、创建 `MessageBus`/`InputServer` 并启动交互 loop。 |
+| `drone_agent/runtime/agent_loop.py` | 单轮 Agent 对话循环，负责调用 LLM、临时注入 active skill、执行工具调用、处理中断条件。 |
+| `drone_agent/runtime/runtime.py` | 运行总控。负责加载 profile、创建 ROS2 executor、创建 `Px4Controller`、创建 LLM client、创建 `MessageBus`/`InputServer`、加载 skills 并启动交互 loop。 |
 | `drone_agent/runtime/safety.py` | Agent 侧安全判定逻辑，例如飞行工具是否需要 Y/N 人工确认，以及哪些结果会直接结束当前轮。 |
 | `drone_agent/runtime/task_state.py` | 任务状态数据结构、状态转移方法和彩色终端状态行格式化。 |
 | `drone_agent/runtime/terminal.py` | 根据当前系统环境自动打开独立输入终端，并构造 `python -m drone_agent.bus.input_terminal` 启动命令。 |
@@ -124,9 +124,24 @@
 | 路径 | 作用 |
 | --- | --- |
 | `drone_agent/logging/__init__.py` | 日志子包标记文件。 |
-| `drone_agent/logging/task_log.py` | 以 JSONL 格式记录 agent 消息和工具调用结果。 |
+| `drone_agent/logging/task_log.py` | 以 JSONL 格式记录 agent 消息、选中的 skill 和工具调用结果。 |
 
-### 4.7 `drone_agent/px4/`
+### 4.7 `drone_agent/skills/`
+
+职责：管理 Claude/Codex 风格的说明型 skills。skill 只指导 Agent 如何使用现有 tools，不新增飞控执行入口。
+
+| 路径 | 作用 |
+| --- | --- |
+| `drone_agent/skills/__init__.py` | skills 子包导出文件。 |
+| `drone_agent/skills/context.py` | 构造全局 `skills index` 和本轮 `active skill` system 消息。 |
+| `drone_agent/skills/loader.py` | 扫描并加载项目内置 `SKILL.md`。 |
+| `drone_agent/skills/selector.py` | 根据用户输入、profile 和关键词选择本轮 active skill。 |
+| `drone_agent/skills/skill_creator.py` | 创建标准格式的手写 skill 草稿，并复用 validator 校验。 |
+| `drone_agent/skills/validator.py` | 校验 skill 目录、frontmatter 和允许的根目录内容。 |
+| `drone_agent/skills/visual-search/SKILL.md` | 视觉搜索目标的任务方法论。 |
+| `drone_agent/skills/real-low-altitude-test/SKILL.md` | 真机低高度试飞的任务方法论。 |
+
+### 4.8 `drone_agent/px4/`
 
 职责：封装 PX4 DDS 交互和底层控制能力。
 
@@ -138,7 +153,7 @@
 | `drone_agent/px4/status.py` | PX4 状态字段解析与可读化辅助函数。 |
 | `drone_agent/px4/topics.py` | PX4 DDS topic 常量定义。 |
 
-### 4.8 `drone_agent/tools/`
+### 4.9 `drone_agent/tools/`
 
 职责：LLM 可调用工具层。
 
@@ -151,7 +166,7 @@
 | `drone_agent/tools/schemas.py` | Function Calling 的工具 schema 定义。 |
 | `drone_agent/tools/status.py` | 状态查询工具，如当前位置、电池状态、飞行模式状态。 |
 
-### 4.9 `drone_agent/vision/`
+### 4.10 `drone_agent/vision/`
 
 职责：视觉模型与图像文件处理。
 
@@ -241,9 +256,11 @@
 5. `drone_agent/runtime/terminal.py`
 6. `drone_agent/bus/message_bus.py`
 7. `drone_agent/bus/intervention.py`
-8. `drone_agent/config/loader.py`
-9. `drone_agent/px4/controller.py`
-10. `drone_agent/tools/registry.py`
-11. `drone_agent/tools/flight.py`
-12. `drone_agent/tools/perception.py`
-13. `drone_agent/vision/vlm.py`
+8. `drone_agent/skills/loader.py`
+9. `drone_agent/skills/selector.py`
+10. `drone_agent/config/loader.py`
+11. `drone_agent/px4/controller.py`
+12. `drone_agent/tools/registry.py`
+13. `drone_agent/tools/flight.py`
+14. `drone_agent/tools/perception.py`
+15. `drone_agent/vision/vlm.py`
