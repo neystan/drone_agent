@@ -214,7 +214,27 @@ ANALYZE_VIEW_TOOL_SCHEMA = {
     },
 }
 
+ACTIVATE_SKILL_TOOL_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "activate_skill",
+        "description": "启用一个当前可用的 drone_agent skill，并返回该 skill 的完整内容。",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "要启用的 skill 名称，必须使用 Skills Index 中列出的精确 name。",
+                }
+            },
+            "required": ["name"],
+            "additionalProperties": False,
+        },
+    },
+}
+
 TOOL_SCHEMAS = [
+    ACTIVATE_SKILL_TOOL_SCHEMA,
     TAKEOFF_TOOL_SCHEMA,
     LAND_TOOL_SCHEMA,
     DISARM_TOOL_SCHEMA,

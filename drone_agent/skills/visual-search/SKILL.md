@@ -1,12 +1,8 @@
 ---
 name: visual-search
-description: 当用户要求寻找、搜索、观察或对准目标时使用，指导 agent 通过 analyze_view、rotate、move 分步完成视觉搜索。
+description: 当用户要求寻找目标、搜索目标、观察环境、判断目标是否出现在画面中，或让无人机对准某个目标时使用，指导 agent 分步完成视觉搜索和目标对准。
 enabled: true
 mode: ["sim", "real"]
-trigger_keywords: ["寻找", "搜索", "目标", "看见", "观察", "对准"]
-allowed_tools: ["analyze_view", "rotate", "move", "hover", "timer"]
-forbidden_tools: ["disarm"]
-requires_confirmation: true
 ---
 
 # Visual Search

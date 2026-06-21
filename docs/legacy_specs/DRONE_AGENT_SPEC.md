@@ -1172,11 +1172,11 @@ CLI 或 Web 界面后续应展示 Planner 的计划和分派情况。最小可�
 - Agent 能加载项目内置 `SKILL.md`。
 - Agent 能构建全局 `skills index`。
 - `skill_creator` 能生成标准格式的 `SKILL.md` 草稿。
-- Agent 能根据关键词选择 `visual-search` 或 `real-low-altitude-test`。
-- 没有匹配 skill 的普通对话不注入 skill。
-- 每轮最多注入一个 skill。
-- 未选中的 skill 正文不会注入上下文。
-- 日志能记录本轮使用的 skill。
+- 主 LLM 能通过 `activate_skill` 启用 `visual-search` 或 `real-low-altitude-test`。
+- `activate_skill` 会校验 skill 是否存在、是否启用、当前 profile 是否允许。
+- 启用 skill 前会触发 Y/N 人工确认。
+- 用户确认后，skill 正文通过工具结果返回给主 LLM。
+- 日志通过 `tool_calls.jsonl` 记录 skill 启用。
 - skill 不改变 tool schema，也不新增飞控执行入口。
 
 当前实现文件：
@@ -1184,12 +1184,12 @@ CLI 或 Web 界面后续应展示 Planner 的计划和分派情况。最小可�
 - `drone_agent/skills/validator.py`
 - `drone_agent/skills/skill_creator.py`
 - `drone_agent/skills/loader.py`
-- `drone_agent/skills/selector.py`
 - `drone_agent/skills/context.py`
 - `drone_agent/skills/visual-search/SKILL.md`
 - `drone_agent/skills/real-low-altitude-test/SKILL.md`
-- `runtime.py` 构建 `skills index` 并记录 `selected_skill`
-- `agent_loop.py` 临时注入本轮 `active skill`
+- `drone_agent/tools/skill.py`
+- `runtime.py` 构建 `skills index`
+- `agent_loop.py` 通过普通工具调用接收 `activate_skill` 结果
 
 设计文档：`docs/PHASE_8_SKILLS_DESIGN.md`
 

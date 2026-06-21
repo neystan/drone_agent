@@ -86,21 +86,22 @@ drone_agent/
   skills/
     __init__.py
     loader.py
-    selector.py
     validator.py
     skill_creator.py
     visual-search/
       SKILL.md
     real-low-altitude-test/
       SKILL.md
+  tools/
+    skill.py
 ```
 
 说明：
 
 - `loader.py`：扫描和读取内置 skills。
-- `selector.py`：根据用户输入和 profile 选择 skill。
 - `validator.py`：校验 skill 结构和 frontmatter。
-- `skill_creator.py`：根据用户提供的名称、描述、触发词和正文模板创建手写 skill 草稿，并复用 validator 校验。
+- `skill_creator.py`：根据用户提供的名称、描述、mode 和正文模板创建手写 skill 草稿，并复用 validator 校验。
+- `tools/skill.py`：提供 `activate_skill` 工具，负责校验、HITL 和返回完整 skill 正文。
 - `visual-search/`：内置视觉搜索流程 skill。
 - `real-low-altitude-test/`：内置真机低高度试飞流程 skill。
 
@@ -125,13 +126,9 @@ init_skill.py
 ```yaml
 ---
 name: visual-search
-description: 当用户要求寻找、搜索、观察或对准目标时使用，指导 agent 通过 analyze_view、rotate、move 分步完成视觉搜索。
+description: 当用户要求寻找目标、搜索目标、观察环境、判断目标是否出现在画面中，或让无人机对准某个目标时使用，指导 agent 分步完成视觉搜索和目标对准。
 enabled: true
 mode: ["sim", "real"]
-trigger_keywords: ["寻找", "搜索", "目标", "看见", "对准"]
-allowed_tools: ["analyze_view", "rotate", "move", "hover", "timer"]
-forbidden_tools: ["disarm"]
-requires_confirmation: true
 ---
 
 # Visual Search
@@ -164,16 +161,16 @@ Phase 8 第一版采用三层结构：
   让模型知道当前有哪些 skill 可以使用
 
 第 3 层：Active Skill
-  只在命中某个 skill 时注入该 skill 的正文
-  同时附带少量关键约束字段
+  主 LLM 调用 activate_skill 后，由工具返回该 skill 的正文
 ```
 
 也就是说：
 
 - `name`、`description` 会组成全局 `skills index`，常驻在对话上下文中。
-- `enabled`、`mode`、`trigger_keywords` 主要给代码使用，用于过滤和选择 skill。
-- 被选中的 skill 会把正文注入 LLM。
-- 被选中的 skill 也会把 `name`、`allowed_tools`、`forbidden_tools` 这类关键字段作为简短约束注入 LLM。
+- `enabled`、`mode` 主要给代码使用，用于过滤 skill。
+- 主 LLM 根据 `skills index` 决定是否调用 `activate_skill`。
+- `activate_skill` 会校验 skill 是否存在、是否启用、当前 profile 是否允许，并触发 Y/N 人工确认。
+- 用户确认后，`activate_skill` 才会把正文作为工具结果返回给 LLM。
 - 未选中的 skill 不会把正文注入 LLM。
 - 第一版不做 `always skill`，避免长期污染飞控 system prompt。
 
@@ -201,28 +198,6 @@ Phase 8 第一版采用三层结构：
 - 必填。
 - 可选值：`sim`、`real`。
 - 当前 profile 不匹配时不参与选择。
-
-`trigger_keywords`
-
-- 必填。
-- 第一版 selector 用它做简单关键词匹配。
-
-`allowed_tools`
-
-- 必填。
-- 说明该 skill 推荐使用哪些工具。
-- 第一版只注入给 LLM 作为约束，不直接替代工具 schema。
-
-`forbidden_tools`
-
-- 可选。
-- 说明该 skill 场景下不应主动调用哪些工具。
-
-`requires_confirmation`
-
-- 可选。
-- 说明该 skill 涉及飞行动作时应更倾向等待确认。
-- 实际 HITL 仍由现有 `human_in_the_loop_for_flight_tools` 控制。
 
 ### 6.3 正文字段
 
@@ -263,26 +238,26 @@ Phase 8 第一版采用三层结构：
 
 ## 7. Skill 选择流程
 
-第一版采用简单、可解释的关键词选择。
+第一版采用主 LLM 判断 + `activate_skill` 工具启用。
 
 流程：
 
 ```text
 用户输入
-  -> selector 读取已启用 skills
-  -> 过滤 mode 不匹配的 skill
-  -> 用 trigger_keywords 匹配用户输入
-  -> 命中 0 个：不注入 skill
-  -> 命中 1 个：注入该 skill
-  -> 命中多个：选择关键词命中数最多的 skill
+  -> 主 LLM 查看 Skills Index
+  -> 如果需要某个 skill，调用 activate_skill(name)
+  -> Python 校验 skill 是否存在、enabled、mode 是否匹配
+  -> 触发 Y/N 人工确认
+  -> 用户确认后返回 skill 正文
+  -> 主 LLM 根据 skill 正文继续调用普通 tools
 ```
 
-第一版不做向量检索，也不让 LLM 自己决定读取哪个 skill 文件。
+第一版不做向量检索，也不让 LLM 自己读取 skill 文件路径。
 
 原因：
 
 - 当前 skill 数量少。
-- 关键词匹配更容易调试。
+- `activate_skill` 不需要为每轮对话额外增加一次 LLM router 调用。
 - 飞控任务需要可解释的触发路径。
 
 ## 8. Skills Index 与 Active Skill
@@ -317,7 +292,7 @@ Phase 8 第一版采用三层结构：
 - 帮助模型理解 runtime 选中某个 skill 的语义
 - 避免把所有 skill 正文长期塞进上下文
 
-### 8.2 Active Skill
+### 8.2 activate_skill
 
 当前 `runtime.py` 会创建基础 system prompt：
 
@@ -325,25 +300,13 @@ Phase 8 第一版采用三层结构：
 SYSTEM_PROMPT
 ```
 
-Phase 8 建议新增一个轻量 prompt 构造函数，用于在每轮组装：
+如果主 LLM 需要使用某个 skill，必须先调用：
 
 ```text
-build_turn_messages(base_messages, selected_skill)
+activate_skill(name="visual-search")
 ```
 
-如果本轮命中了 skill，就再额外注入：
-
-```markdown
-# Active Skill
-
-当前用户请求匹配以下 skill。你必须遵守该 skill 的流程和安全约束。
-
-Skill: visual-search
-Allowed tools: analyze_view, rotate, move, hover, timer
-Forbidden tools: disarm
-
-<SKILL.md 正文>
-```
+工具会完成 Python 校验和 Y/N 人工确认。确认后，工具结果中返回 `skill_content`，主 LLM 再根据该内容继续调用其他 tools。
 
 注意：
 
@@ -385,23 +348,17 @@ skill 只能告诉 LLM “应该怎么做”，不能决定“是否绕过安全
 
 ## 10. 日志记录
 
-Phase 8 建议记录每轮选中的 skill。
-
-可选方案：
-
-1. 在 `agent_messages.jsonl` 的用户消息事件中增加 `selected_skill`。
-2. 在 `task_state.jsonl` 中增加 `selected_skill`。
-
-第一版建议优先记录到 `agent_messages.jsonl`，因为 skill 是本轮 LLM 上下文的一部分，和用户输入、assistant 输出关系更直接。
+Phase 8 通过工具调用日志记录 skill 启用。
 
 示例：
 
 ```json
 {
   "timestamp": "2026-06-21 20:30:10",
-  "role": "user",
-  "content": "寻找红色椅子",
-  "selected_skill": "visual-search"
+  "event_type": "tool_call",
+  "tool_name": "activate_skill",
+  "arguments": {"name": "visual-search"},
+  "result": {"success": true, "skill_name": "visual-search"}
 }
 ```
 
@@ -436,8 +393,6 @@ Phase 8 第一版需要提供 `skill_creator`，但它的定位是“人工创�
 create_skill(
     name: str,
     description: str,
-    trigger_keywords: list[str],
-    allowed_tools: list[str],
     mode: list[str],
 ) -> Path
 ```
@@ -542,11 +497,11 @@ Phase 8 不做：
 2. 新增 `validator.py`，校验 `SKILL.md`。
 3. 新增 `skill_creator.py`，创建标准手写 skill 草稿。
 4. 新增 `loader.py`，加载内置 skills。
-5. 新增 `selector.py`，按关键词选择 skill。
+5. 新增 `tools/skill.py`，提供 `activate_skill`。
 6. 新增 `visual-search/SKILL.md`。
 7. 新增 `real-low-altitude-test/SKILL.md`。
-8. 修改 runtime/agent loop，在每轮 LLM 调用前注入选中的 skill。
-9. 修改日志，记录本轮 `selected_skill`。
+8. 修改工具 schema 和 registry，注册 `activate_skill`。
+9. 修改 system prompt 和 Skills Index，引导主 LLM 先调用 `activate_skill`。
 10. 更新 `PROJECT_ARCHITECTURE.md` 和 `DRONE_AGENT_SPEC.md`。
 
 ## 15. 验收标准

@@ -1,12 +1,8 @@
 ---
 name: real-low-altitude-test
-description: 当用户要求真机低高度试飞、悬停测试或低高度移动测试时使用，指导 agent 先检查状态再执行保守飞行动作。
+description: 当用户要求真机低高度试飞、起飞测试、悬停测试或低高度移动测试时使用，指导 agent 先检查电池、飞行模式和当前位置，再执行保守飞行动作。
 enabled: true
-mode: ["real"]
-trigger_keywords: ["真机", "试飞", "低高度", "悬停测试", "移动测试", "起飞测试"]
-allowed_tools: ["battery_status", "flight_mode_status", "current_position_status", "takeoff", "hover", "timer", "move", "land"]
-forbidden_tools: ["disarm", "return_home"]
-requires_confirmation: true
+mode: ["sim", "real"]
 ---
 
 # Real Low Altitude Test

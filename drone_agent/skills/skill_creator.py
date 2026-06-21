@@ -23,13 +23,9 @@ def normalize_skill_name(name: str) -> str:
 def create_skill(
     name: str,
     description: str,
-    trigger_keywords: list[str],
-    allowed_tools: list[str],
     mode: list[str],
     *,
     skills_dir: Path | None = None,
-    forbidden_tools: list[str] | None = None,
-    requires_confirmation: bool = False,
     enabled: bool = False,
 ) -> Path:
     """创建 SKILL.md 草稿并返回 skill 目录。"""
@@ -45,11 +41,7 @@ def create_skill(
         _render_skill_template(
             skill_name=skill_name,
             description=description,
-            trigger_keywords=trigger_keywords,
-            allowed_tools=allowed_tools,
-            forbidden_tools=forbidden_tools or [],
             mode=mode,
-            requires_confirmation=requires_confirmation,
             enabled=enabled,
         ),
         encoding="utf-8",
@@ -62,11 +54,7 @@ def _render_skill_template(
     *,
     skill_name: str,
     description: str,
-    trigger_keywords: list[str],
-    allowed_tools: list[str],
-    forbidden_tools: list[str],
     mode: list[str],
-    requires_confirmation: bool,
     enabled: bool,
 ) -> str:
     """渲染标准 SKILL.md 模板。"""
@@ -75,10 +63,6 @@ name: {skill_name}
 description: {description}
 enabled: {str(enabled).lower()}
 mode: {_format_yaml_list(mode)}
-trigger_keywords: {_format_yaml_list(trigger_keywords)}
-allowed_tools: {_format_yaml_list(allowed_tools)}
-forbidden_tools: {_format_yaml_list(forbidden_tools)}
-requires_confirmation: {str(requires_confirmation).lower()}
 ---
 
 # {skill_name}
@@ -125,23 +109,19 @@ def main() -> int:
     """提供最小 CLI，用于初始化 skill 草稿。"""
     parser = argparse.ArgumentParser(description="Create a drone_agent skill draft.")
     parser.add_argument("name")
-    parser.add_argument("--description", required=True)
-    parser.add_argument("--trigger-keyword", action="append", required=True)
-    parser.add_argument("--allowed-tool", action="append", required=True)
+    parser.add_argument(
+        "--description",
+        required=True,
+        help="中文描述，说明这个 skill 适合处理哪类用户请求。",
+    )
     parser.add_argument("--mode", action="append", choices=["sim", "real"], required=True)
-    parser.add_argument("--forbidden-tool", action="append", default=[])
-    parser.add_argument("--requires-confirmation", action="store_true")
     parser.add_argument("--enabled", action="store_true")
     args = parser.parse_args()
 
     skill_dir = create_skill(
         args.name,
         args.description,
-        args.trigger_keyword,
-        args.allowed_tool,
         args.mode,
-        forbidden_tools=args.forbidden_tool,
-        requires_confirmation=args.requires_confirmation,
         enabled=args.enabled,
     )
     print(skill_dir)

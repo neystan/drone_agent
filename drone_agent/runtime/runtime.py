@@ -15,7 +15,6 @@ from drone_agent.runtime.task_state import TaskState, format_task_state_line
 from drone_agent.runtime.terminal import open_input_terminal
 from drone_agent.skills.context import build_skills_index
 from drone_agent.skills.loader import Skill, SkillsLoader
-from drone_agent.skills.selector import select_skill
 from drone_agent.tools.registry import ToolContext
 
 
@@ -156,16 +155,9 @@ def _run_interactive_loop(
             break
         if context.task_state is not None:
             context.task_state.start_new_goal(user_input)
-        active_skill = select_skill(user_input, context.profile.name, skills)
         messages.append({"role": "user", "content": user_input})
-        log_agent_message(
-            context.profile,
-            context.session_id,
-            "user",
-            user_input,
-            selected_skill=active_skill.name if active_skill is not None else None,
-        )
-        agent_loop(client, model, messages, context, active_skill=active_skill)
+        log_agent_message(context.profile, context.session_id, "user", user_input)
+        agent_loop(client, model, messages, context)
 
 
 def _start_input_terminal(input_server: InputServer, profile_name: str) -> bool:

@@ -20,10 +20,6 @@ class Skill:
     description: str
     enabled: bool
     modes: tuple[str, ...]
-    trigger_keywords: tuple[str, ...]
-    allowed_tools: tuple[str, ...]
-    forbidden_tools: tuple[str, ...]
-    requires_confirmation: bool
     body: str
     path: Path
 
@@ -67,10 +63,6 @@ def _build_skill(metadata: dict[str, Any], body: str, path: Path) -> Skill:
         description=str(metadata["description"]).strip(),
         enabled=bool(metadata["enabled"]),
         modes=tuple(str(item).strip() for item in metadata["mode"]),
-        trigger_keywords=tuple(str(item).strip() for item in metadata["trigger_keywords"]),
-        allowed_tools=tuple(str(item).strip() for item in metadata["allowed_tools"]),
-        forbidden_tools=tuple(str(item).strip() for item in metadata.get("forbidden_tools", []) or []),
-        requires_confirmation=bool(metadata.get("requires_confirmation", False)),
         body=body,
         path=path,
     )

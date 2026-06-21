@@ -8,8 +8,9 @@ from typing import Any, Callable
 from drone_agent.bus import MessageBus
 from drone_agent.config.schema import RuntimeProfile
 from drone_agent.runtime.task_state import TaskState
-from . import flight, perception, status
+from . import flight, perception, skill, status
 from .schemas import (
+    ACTIVATE_SKILL_TOOL_SCHEMA,
     ANALYZE_VIEW_TOOL_SCHEMA,
     BATTERY_STATUS_TOOL_SCHEMA,
     CURRENT_POSITION_TOOL_SCHEMA,
@@ -123,7 +124,13 @@ def _analyze_view_handler(context: ToolContext, arguments: dict[str, Any]) -> di
     return perception.analyze_view(context, arguments)
 
 
+def _activate_skill_handler(context: ToolContext, arguments: dict[str, Any]) -> dict:
+    """转发 skill 启用工具调用。"""
+    return skill.activate_skill(context, arguments.get("name"))
+
+
 TOOL_DEFINITIONS = [
+    ToolDefinition("activate_skill", ACTIVATE_SKILL_TOOL_SCHEMA, _activate_skill_handler),
     ToolDefinition("takeoff", TAKEOFF_TOOL_SCHEMA, _takeoff_handler),
     ToolDefinition("land", LAND_TOOL_SCHEMA, _land_handler),
     ToolDefinition("disarm", DISARM_TOOL_SCHEMA, _disarm_handler),

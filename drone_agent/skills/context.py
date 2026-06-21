@@ -1,8 +1,11 @@
-"""构造 skills index 和 active skill 上下文。"""
+"""构造 skills index 和终端显示内容。"""
 
 from __future__ import annotations
 
 from .loader import Skill
+
+BLUE = "\033[34m"
+RESET = "\033[0m"
 
 
 def build_skills_index(skills: list[Skill], profile_name: str) -> str:
@@ -13,28 +16,19 @@ def build_skills_index(skills: list[Skill], profile_name: str) -> str:
     if not enabled_skills:
         return ""
 
-    lines = ["# Skills Index", "", "当前可用的 skills："]
+    lines = [
+        "# Skills Index",
+        "",
+        "以下是当前可用的 skills。它们只是可启用能力，不会自动生效。",
+        "如果用户明确要求使用某个 skill，或用户请求明显符合某个 skill 描述，先调用 activate_skill(name)。",
+        "",
+        "当前可用的 skills：",
+    ]
     for skill in enabled_skills:
         lines.append(f"- {skill.name}: {skill.description}")
     return "\n".join(lines)
 
 
-def build_active_skill_message(skill: Skill | None) -> dict[str, str] | None:
-    """生成本轮 active skill 的临时 system 消息。"""
-    if skill is None:
-        return None
-
-    content = "\n".join(
-        [
-            "# Active Skill",
-            "",
-            "当前用户请求匹配以下 skill。你必须遵守该 skill 的流程和安全约束。",
-            "",
-            f"Skill: {skill.name}",
-            f"Allowed tools: {', '.join(skill.allowed_tools)}",
-            f"Forbidden tools: {', '.join(skill.forbidden_tools) if skill.forbidden_tools else 'none'}",
-            "",
-            skill.body,
-        ]
-    )
-    return {"role": "system", "content": content}
+def format_activated_skill_line(skill: Skill) -> str:
+    """生成蓝色 skill 启用提示行。"""
+    return f"{BLUE}skill> {skill.name}{RESET}"

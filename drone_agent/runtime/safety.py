@@ -16,6 +16,14 @@ FLIGHT_TOOL_NAMES = {
     "move",
 }
 
+SKILL_ACTIVATION_END_ERRORS = {
+    "SKILL_NOT_FOUND",
+    "SKILL_DISABLED",
+    "SKILL_MODE_MISMATCH",
+    "SKILL_ACTIVATION_DECLINED",
+    "SKILL_ACTIVATION_UNAVAILABLE",
+}
+
 
 class EndCurrentTurn(RuntimeError):
     """用于立即结束当前 agent 执行轮次。"""
@@ -35,4 +43,8 @@ def requires_human_in_the_loop(profile: RuntimeProfile, tool_name: str) -> bool:
 def should_end_turn_after_tool_result(result: dict[str, Any]) -> bool:
     """判断工具结果是否应直接结束当前轮。"""
     error = str(result.get("error", "")).strip()
-    return error.endswith("_TIMEOUT") or error == "INTERRUPTED_BY_USER"
+    return (
+        error.endswith("_TIMEOUT")
+        or error == "INTERRUPTED_BY_USER"
+        or error in SKILL_ACTIVATION_END_ERRORS
+    )

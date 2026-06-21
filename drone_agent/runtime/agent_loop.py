@@ -9,8 +9,6 @@ from drone_agent.logging.task_log import log_agent_message, log_task_state
 from drone_agent.runtime.safety import EndCurrentTurn
 from drone_agent.runtime.task_state import format_task_state_line
 from drone_agent.runtime.tool_dispatcher import dispatch_tool_call
-from drone_agent.skills.context import build_active_skill_message
-from drone_agent.skills.loader import Skill
 from drone_agent.tools.registry import ToolContext, get_tool_schemas
 
 
@@ -22,14 +20,13 @@ def agent_loop(
     model: str,
     messages: list[dict[str, Any]],
     context: ToolContext,
-    active_skill: Skill | None = None,
 ) -> str:
     """执行一轮模型对话，直到得到最终回复或中断。"""
     for _ in range(MAX_TOOL_CALLS_PER_TURN):
         _record_task_state(context, "thinking")
         response = client.chat.completions.create(
             model=model,
-            messages=_messages_for_request(messages, active_skill),
+            messages=messages,
             tools=get_tool_schemas(),
             tool_choice="auto",
             temperature=0.0,
@@ -92,17 +89,6 @@ def agent_loop(
     print(f"agent> {assistant_text}")
     log_agent_message(context.profile, context.session_id, "assistant", assistant_text)
     return assistant_text
-
-
-def _messages_for_request(
-    messages: list[dict[str, Any]],
-    active_skill: Skill | None,
-) -> list[dict[str, Any]]:
-    """给本轮请求临时追加 active skill，不污染长期消息历史。"""
-    skill_message = build_active_skill_message(active_skill)
-    if skill_message is None:
-        return messages
-    return [*messages, skill_message]
 
 
 def _record_task_state(context: ToolContext, phase: str) -> None:

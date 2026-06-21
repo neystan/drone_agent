@@ -100,7 +100,7 @@
 | 路径 | 作用 |
 | --- | --- |
 | `drone_agent/runtime/__init__.py` | 运行时子包标记文件。 |
-| `drone_agent/runtime/agent_loop.py` | 单轮 Agent 对话循环，负责调用 LLM、临时注入 active skill、执行工具调用、处理中断条件。 |
+| `drone_agent/runtime/agent_loop.py` | 单轮 Agent 对话循环，负责调用 LLM、执行工具调用、处理中断条件。 |
 | `drone_agent/runtime/runtime.py` | 运行总控。负责加载 profile、创建 ROS2 executor、创建 `Px4Controller`、创建 LLM client、创建 `MessageBus`/`InputServer`、加载 skills 并启动交互 loop。 |
 | `drone_agent/runtime/safety.py` | Agent 侧安全判定逻辑，例如飞行工具是否需要 Y/N 人工确认，以及哪些结果会直接结束当前轮。 |
 | `drone_agent/runtime/task_state.py` | 任务状态数据结构、状态转移方法和彩色终端状态行格式化。 |
@@ -124,7 +124,7 @@
 | 路径 | 作用 |
 | --- | --- |
 | `drone_agent/logging/__init__.py` | 日志子包标记文件。 |
-| `drone_agent/logging/task_log.py` | 以 JSONL 格式记录 agent 消息、选中的 skill 和工具调用结果。 |
+| `drone_agent/logging/task_log.py` | 以 JSONL 格式记录 agent 消息、工具调用结果和任务状态。 |
 
 ### 4.7 `drone_agent/skills/`
 
@@ -133,9 +133,8 @@
 | 路径 | 作用 |
 | --- | --- |
 | `drone_agent/skills/__init__.py` | skills 子包导出文件。 |
-| `drone_agent/skills/context.py` | 构造全局 `skills index` 和本轮 `active skill` system 消息。 |
+| `drone_agent/skills/context.py` | 构造全局 `skills index` 和 skill 终端显示内容。 |
 | `drone_agent/skills/loader.py` | 扫描并加载项目内置 `SKILL.md`。 |
-| `drone_agent/skills/selector.py` | 根据用户输入、profile 和关键词选择本轮 active skill。 |
 | `drone_agent/skills/skill_creator.py` | 创建标准格式的手写 skill 草稿，并复用 validator 校验。 |
 | `drone_agent/skills/validator.py` | 校验 skill 目录、frontmatter 和允许的根目录内容。 |
 | `drone_agent/skills/visual-search/SKILL.md` | 视觉搜索目标的任务方法论。 |
@@ -164,6 +163,7 @@
 | `drone_agent/tools/perception.py` | 感知工具实现，如拍照和视觉分析，负责从 controller 取最新图像并调用视觉模块。 |
 | `drone_agent/tools/registry.py` | 工具注册表，定义工具名、schema、handler 之间的映射，并定义包含 `message_bus`/`task_state` 的 `ToolContext`。 |
 | `drone_agent/tools/schemas.py` | Function Calling 的工具 schema 定义。 |
+| `drone_agent/tools/skill.py` | skill 启用工具，负责校验 skill、触发 Y/N 人工确认，并把完整 skill 正文返回给主 LLM。 |
 | `drone_agent/tools/status.py` | 状态查询工具，如当前位置、电池状态、飞行模式状态。 |
 
 ### 4.10 `drone_agent/vision/`
@@ -257,7 +257,7 @@
 6. `drone_agent/bus/message_bus.py`
 7. `drone_agent/bus/intervention.py`
 8. `drone_agent/skills/loader.py`
-9. `drone_agent/skills/selector.py`
+9. `drone_agent/tools/skill.py`
 10. `drone_agent/config/loader.py`
 11. `drone_agent/px4/controller.py`
 12. `drone_agent/tools/registry.py`

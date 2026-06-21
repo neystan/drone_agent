@@ -64,7 +64,6 @@ def log_agent_message(
     session_id: str,
     role: str,
     content: str,
-    selected_skill: str | None = None,
 ) -> None:
     """记录一次 agent 消息。"""
     event = {
@@ -74,8 +73,6 @@ def log_agent_message(
         "role": role,
         "content": content,
     }
-    if selected_skill is not None:
-        event["selected_skill"] = selected_skill
     try:
         append_jsonl(str(_session_log_dir(profile, session_id)), "agent_messages.jsonl", event)
     except OSError:

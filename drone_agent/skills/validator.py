@@ -14,10 +14,6 @@ ALLOWED_FRONTMATTER_KEYS = {
     "description",
     "enabled",
     "mode",
-    "trigger_keywords",
-    "allowed_tools",
-    "forbidden_tools",
-    "requires_confirmation",
 }
 ALLOWED_SKILL_ROOT_DIRS = {"examples", "references"}
 SKILL_NAME_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -105,16 +101,6 @@ def validate_frontmatter(metadata: dict[str, Any], folder_name: str) -> None:
         raise SkillValidationError("enabled must be a boolean")
 
     _required_str_list(metadata, "mode", allowed_values={"sim", "real"})
-    _required_str_list(metadata, "trigger_keywords")
-    _required_str_list(metadata, "allowed_tools")
-
-    forbidden_tools = metadata.get("forbidden_tools", [])
-    if forbidden_tools is not None and not _is_str_list(forbidden_tools):
-        raise SkillValidationError("forbidden_tools must be a string list")
-
-    requires_confirmation = metadata.get("requires_confirmation", False)
-    if not isinstance(requires_confirmation, bool):
-        raise SkillValidationError("requires_confirmation must be a boolean")
 
 
 def validate_skill_root_files(skill_dir: Path) -> None:
