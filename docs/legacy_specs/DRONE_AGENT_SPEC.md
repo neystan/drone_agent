@@ -1154,20 +1154,27 @@ CLI 或 Web 界面后续应展示 Planner 的计划和分派情况。最小可�
 
 #### Phase 8：Skills
 
-目标：引入 Claude/Codex 风格的 `SKILL.md` 能力包，让 Agent 可以复用经过确认的经验和流程。
+目标：引入 Claude/Codex 风格的 `SKILL.md` 能力包，让 Agent 可以复用经过确认的任务经验和流程。
 
 范围：
 
-- 先支持手写 skill。
-- 再支持从日志生成候选 skill。
-- 候选 skill 必须由用户确认后才能启用。
-- 初期 skill 只影响 Agent 的规划和工具选择，不直接生成飞控代码。
+- Phase 8 第一版只支持项目内置 `drone_agent/skills/` 中的手写 skill。
+- runtime 根据用户输入选择 0 或 1 个 skill。
+- 选中的 skill 正文会注入本轮 LLM 上下文。
+- skill 只影响 Agent 的规划和工具选择，不直接生成飞控代码。
+- skill 不能绕过 `tools/`、HITL、语言介入、超时和起飞前安全门。
+- 第一版不支持 `scripts/`、workspace 覆盖、打包分发或从日志自动生成 skill。
 
 验收标准：
 
-- Agent 能加载并使用手写 `SKILL.md`。
-- Agent 能根据日志生成候选 skill 草稿。
-- 未经用户确认的 skill 不会进入可用状态。
+- Agent 能加载项目内置 `SKILL.md`。
+- Agent 能根据关键词选择 `visual-search` 或 `real-low-altitude-test`。
+- 没有匹配 skill 的普通对话不注入 skill。
+- 每轮最多注入一个 skill。
+- 日志能记录本轮使用的 skill。
+- skill 不改变 tool schema，也不新增飞控执行入口。
+
+设计文档：`docs/PHASE_8_SKILLS_DESIGN.md`
 
 #### Phase 9：Multi-Agent
 
