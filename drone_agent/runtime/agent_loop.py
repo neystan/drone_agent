@@ -61,18 +61,11 @@ def agent_loop(
             }
         )
 
-        for call in tool_calls:
+        for index, call in enumerate(tool_calls):
             try:
                 tool_result = dispatch_tool_call(context, call)
             except EndCurrentTurn as exc:
-                if exc.tool_result is not None:
-                    messages.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": call.id,
-                            "content": json.dumps(exc.tool_result, ensure_ascii=False),
-                        }
-                    )
+                _append_turn_end_tool_results(messages, tool_calls, index, exc)
                 assistant_text = str(exc)
                 print(f"agent> {assistant_text}")
                 log_agent_message(context.profile, context.session_id, "assistant", assistant_text)
@@ -101,3 +94,35 @@ def _record_task_state(context: ToolContext, phase: str) -> None:
         context.task_state.set_idle()
     print(format_task_state_line(context.task_state))
     log_task_state(context.profile, context.session_id, context.task_state)
+
+
+def _append_turn_end_tool_results(
+    messages: list[dict[str, Any]],
+    tool_calls: list[Any],
+    stopped_index: int,
+    exc: EndCurrentTurn,
+) -> None:
+    """补齐当前 assistant tool_calls 的 tool 响应，避免下一轮请求非法。"""
+    result = exc.tool_result or {
+        "success": False,
+        "error": "TURN_ABORTED",
+        "message": str(exc),
+    }
+    messages.append(_build_tool_message(tool_calls[stopped_index].id, result))
+
+    skipped_result = {
+        "success": False,
+        "error": "SKIPPED_DUE_TO_TURN_END",
+        "message": str(exc),
+    }
+    for pending_call in tool_calls[stopped_index + 1 :]:
+        messages.append(_build_tool_message(pending_call.id, skipped_result))
+
+
+def _build_tool_message(tool_call_id: str, result: dict[str, Any]) -> dict[str, Any]:
+    """构造符合 OpenAI tool_call 协议的 tool message。"""
+    return {
+        "role": "tool",
+        "tool_call_id": tool_call_id,
+        "content": json.dumps(result, ensure_ascii=False),
+    }

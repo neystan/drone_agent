@@ -114,7 +114,7 @@ def derive_suggested_action(
     if not target_description:
         return "hold_position"
     if not found_target:
-        return "rotate_right_search"
+        return "rotate_left_search"
     if target_position == "left":
         return "rotate_left_search"
     if target_position == "right":

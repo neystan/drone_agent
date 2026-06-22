@@ -312,6 +312,7 @@ activate_skill(name="visual-search")
 
 - 不修改全局 `SYSTEM_PROMPT` 常量。
 - `skills index` 可以常驻，但只包含 `name + description`。
+- `skills index` 第一版不包含文件路径，避免让模型绕过 `activate_skill` 直接读取 skill 文件。
 - 每轮最多注入一个 skill。
 - 只有命中的 `active skill` 才注入正文。
 - skill 注入只影响 LLM 规划，不改变 tool schema。
