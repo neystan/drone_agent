@@ -436,16 +436,19 @@ CLI 第一版只做模板初始化，不需要复杂交互。
 
 ```text
 analyze_view
-  -> 没看到目标：小步 rotate 粗搜索
-  -> 看到目标但不居中：小角度 rotate 微调
-  -> 需要靠近：小步 move
+  -> 没看到目标：按 60 度大步 rotate 向左粗搜索一圈
+  -> 看到目标但不居中：根据 suggested_action / target_position / center_offset_x 做 30 度以内小角度 rotate 微调
+  -> 非必要不 move；必须靠近时只允许 1 米小步 move
   -> 每次动作后重新 analyze_view
 ```
 
 安全约束：
 
-- 不允许一次性大幅移动。
+- 当前前视相机水平视野约 90 度，粗搜索尽量持续向左旋转，避免来回切换方向。
+- `found_target=false` 时，VLM 的 `suggested_action` 默认应为 `rotate_left_search`，和粗搜索策略保持一致。
+- `found_target=true` 后才使用方向微调规则：`rotate_left_search` / `center_offset_x < 0` 只能左转，`rotate_right_search` / `center_offset_x > 0` 只能右转。
 - 每次移动或旋转后必须重新观察。
+- 非必要情况下不使用 `move`，必须移动时只允许小步移动 1 米。
 - 视觉置信度低时应停止并说明。
 
 ### 12.2 real-low-altitude-test

@@ -105,6 +105,8 @@ def save_analysis_frame(frame, analysis_save_dir: str) -> Path:
 - `target_description` 为空时只做场景描述。
 - `target_description` 存在时返回目标识别结果和建议动作。
 - 保留当前动作建议集合：`rotate_right_search`、`rotate_left_search`、`move_right`、`move_left`、`move_forward`、`take_photo`、`hold_position`。
+- 当前未发现目标时，`derive_suggested_action()` 默认返回 `rotate_left_search`，与 `visual-search` 的持续向左粗搜索策略保持一致。
+- 当前已经发现目标时，`suggested_action` 根据 `target_position` 和 `center_offset_x` 推导：目标偏左建议左转，目标偏右建议右转，目标居中且偏移足够小时建议拍照。
 
 ### `tools/perception.py`
 

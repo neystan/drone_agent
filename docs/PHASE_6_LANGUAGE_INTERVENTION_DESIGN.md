@@ -428,7 +428,8 @@ if should_interrupt(context):
 
 5. `tool_dispatcher.py` 识别 `INTERRUPTED_BY_USER`，抛出 `EndCurrentTurn`。
 6. `agent_loop.py` 结束当前轮，不继续旧 tool call 链路。
-7. `runtime.py` 把介入消息作为新的 user message 交给 LLM。
+7. 如果同一条 assistant message 中还有未执行的 `tool_calls`，`agent_loop.py` 会为剩余 `tool_call_id` 补 `SKIPPED_DUE_TO_TURN_END` 结果，避免下一轮请求违反 OpenAI tool call 消息协议。
+8. `runtime.py` 把介入消息作为新的 user message 交给 LLM。
 
 注意：飞行工具中断时的 hover 必须是代码动作，不应该让 LLM 决定是否 hover。
 
@@ -505,6 +506,7 @@ Phase 6 不建议让 LLM 在同一轮继续处理介入消息。
   -> LLM 调用工具 A
   -> 用户介入
   -> 工具 A 返回 INTERRUPTED_BY_USER
+  -> agent_loop 补齐当前 assistant message 中剩余未执行 tool_call_id
   -> 当前轮 EndCurrentTurn
   -> runtime 把介入消息追加为新的 user message
   -> agent_loop 重新开始一轮
@@ -515,6 +517,7 @@ Phase 6 不建议让 LLM 在同一轮继续处理介入消息。
 - 避免旧 tool call 链路继续执行。
 - 让介入消息成为新的最高优先级用户输入。
 - 与现有 `EndCurrentTurn` 机制一致。
+- 保持 OpenAI tool call 消息序列合法，避免出现 assistant `tool_calls` 后缺少对应 tool message 的 400 错误。
 
 ## 19. 风险与限制
 

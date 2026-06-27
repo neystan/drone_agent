@@ -174,7 +174,7 @@
 | --- | --- |
 | `drone_agent/vision/__init__.py` | 视觉子包标记文件。 |
 | `drone_agent/vision/image_store.py` | 保存拍照结果和分析帧到磁盘。 |
-| `drone_agent/vision/vlm.py` | 创建视觉模型客户端、构造视觉提示词、编码图像、调用 VLM、解析和归一化视觉结果。 |
+| `drone_agent/vision/vlm.py` | 创建视觉模型客户端、构造视觉提示词、编码图像、调用 VLM、解析和归一化视觉结果；未发现目标时默认建议向左粗搜索，发现目标后再根据位置偏移给出微调方向。 |
 
 ## 5. `launch/` ROS2 launch 目录
 

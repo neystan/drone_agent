@@ -955,6 +955,7 @@ safety:
 - 如果当前工具不是飞行控制相关工具，不需要 hover，但也必须停止当前工具执行，等待介入语句处理完成。
 - 介入消息被补充给 LLM / Planner。
 - Planner 处理介入语句后，再决定继续、修改任务、返航、降落或取消任务。
+- 如果同一条 assistant message 中存在多个 `tool_calls`，当前轮因为介入提前结束时，`agent_loop.py` 必须给剩余未执行的 `tool_call_id` 补 `SKIPPED_DUE_TO_TURN_END` 结果，保持下一轮请求的消息协议合法。
 
 当前实现边界：
 
@@ -1160,8 +1161,8 @@ CLI 或 Web 界面后续应展示 Planner 的计划和分派情况。最小可�
 
 - Phase 8 第一版只支持项目内置 `drone_agent/skills/` 中的手写 skill。
 - 所有已启用 skill 的 `name + description` 会组成全局 `skills index`。
-- runtime 根据用户输入选择 0 或 1 个 skill。
-- 选中的 skill 正文会注入本轮 LLM 上下文。
+- 主 LLM 根据 `skills index` 判断是否需要 skill，并通过 `activate_skill(name)` 启用。
+- `activate_skill` 通过 Python 校验、Y/N 人工确认后，将选中的 skill 正文作为工具结果返回给主 LLM。
 - skill 只影响 Agent 的规划和工具选择，不直接生成飞控代码。
 - skill 不能绕过 `tools/`、HITL、语言介入、超时和起飞前安全门。
 - 需要提供 `skill_creator`，用于人工创建和校验标准格式的手写 skill。
