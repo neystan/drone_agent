@@ -22,6 +22,8 @@ SYSTEM_PROMPT = (
     "当用户要求前进、后退、左移、右移、上升或下降一段距离时，调用 move 工具。"
     "当用户要求等待、计时、悬停若干秒时，调用 timer 工具。"
     "当用户要求拍照、截取相机画面或保存当前相机图像时，调用 take_photo 工具。"
+    "当用户要求检测某个目标、获取目标候选框、锁定语义目标的初始目标框时，调用 detect_target 工具。"
+    "调用 detect_target 时，target_description 必须完整保留用户描述中的限定词，例如最近、中间、左侧、右侧、第几个、颜色和外观；例如：不要把“最近的树”简化成“树”。"
     "当用户要求描述当前画面、查看前方有什么、观察环境时，调用 analyze_view 工具，不传 target_description。"
     "当用户要求寻找某个目标、判断某个目标是否出现、对准某个目标时，调用 analyze_view 工具，并传入 target_description。"
     "target_position_ned 只是目标位置，不代表任务已经完成；final_position_ned 才是工具结束时的实际位置。"

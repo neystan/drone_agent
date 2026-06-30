@@ -10,6 +10,7 @@ from typing import Any
 import yaml
 
 from drone_agent.config.schema import (
+    DetectorConfig,
     ProviderConfig,
     RosConfig,
     RuntimeProfile,
@@ -97,11 +98,14 @@ def _build_profile(raw: dict[str, Any], settings: dict[str, Any]) -> RuntimeProf
     safety = raw["safety"]
     llm_settings = settings.get("llm", {})
     vlm_settings = settings.get("vlm", {})
+    detector_settings = settings.get("detector", {})
 
     if not isinstance(llm_settings, dict):
         raise ValueError("settings.llm must be a mapping")
     if not isinstance(vlm_settings, dict):
         raise ValueError("settings.vlm must be a mapping")
+    if not isinstance(detector_settings, dict):
+        raise ValueError("settings.detector must be a mapping")
 
     llm_api_key = str(llm_settings.get("api_key", "")).strip()
     llm_base_url = str(llm_settings.get("base_url", "")).strip()
@@ -111,6 +115,25 @@ def _build_profile(raw: dict[str, Any], settings: dict[str, Any]) -> RuntimeProf
     vlm_base_url = str(vlm_settings.get("base_url", "")).strip() if vlm_enabled else None
     vlm_model = str(vlm_settings.get("model", "")).strip() if vlm_enabled else None
     vlm_api_key = str(vlm_settings.get("api_key", "")).strip() if vlm_enabled else None
+    detector_enabled = bool(detector_settings.get("enabled", False))
+    detector_provider = (
+        str(detector_settings.get("provider", "dinoxseek")).strip()
+        if detector_enabled
+        else None
+    )
+    detector_api_key = (
+        str(detector_settings.get("api_key", "")).strip() if detector_enabled else None
+    )
+    detector_model = (
+        str(detector_settings.get("model", "DINO-XSeek-1.0")).strip()
+        if detector_enabled
+        else None
+    )
+    detector_api_path = (
+        str(detector_settings.get("api_path", "/v2/task/dino_xseek/detection")).strip()
+        if detector_enabled
+        else None
+    )
 
     return RuntimeProfile(
         name=str(raw["name"]),
@@ -134,6 +157,13 @@ def _build_profile(raw: dict[str, Any], settings: dict[str, Any]) -> RuntimeProf
             base_url=str(vlm_base_url) if vlm_base_url is not None else None,
             model=str(vlm_model) if vlm_model is not None else None,
             api_key=vlm_api_key,
+        ),
+        detector=DetectorConfig(
+            enabled=detector_enabled,
+            provider=detector_provider,
+            api_key=detector_api_key,
+            model=detector_model,
+            api_path=detector_api_path,
         ),
         safety=SafetyConfig(
             human_in_the_loop_for_flight_tools=bool(

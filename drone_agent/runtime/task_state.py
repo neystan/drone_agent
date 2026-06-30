@@ -44,6 +44,11 @@ class TaskState:
     def set_thinking(self) -> None:
         """标记当前轮进入模型思考阶段。"""
         self.current_phase = "thinking"
+        self.active_tool_name = None
+        self.active_tool_arguments = None
+        self.active_tool_is_flight_tool = False
+        self.waiting_for_user_confirmation = False
+        self.last_error = None
 
     def set_idle(self) -> None:
         """标记当前轮已回到空闲状态。"""
@@ -52,6 +57,7 @@ class TaskState:
         self.active_tool_arguments = None
         self.active_tool_is_flight_tool = False
         self.waiting_for_user_confirmation = False
+        self.last_error = None
 
     def set_waiting_for_confirmation(
         self,
@@ -65,6 +71,7 @@ class TaskState:
         self.active_tool_arguments = arguments
         self.active_tool_is_flight_tool = is_flight_tool
         self.waiting_for_user_confirmation = True
+        self.last_error = None
 
     def start_tool(
         self,
@@ -78,6 +85,7 @@ class TaskState:
         self.active_tool_arguments = arguments
         self.active_tool_is_flight_tool = is_flight_tool
         self.waiting_for_user_confirmation = False
+        self.last_error = None
 
     def finish_tool(self, tool_name: str, result: dict[str, Any]) -> None:
         """根据工具结果更新成功或失败状态。"""

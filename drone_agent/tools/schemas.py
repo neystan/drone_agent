@@ -214,6 +214,25 @@ ANALYZE_VIEW_TOOL_SCHEMA = {
     },
 }
 
+DETECT_TARGET_TOOL_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "detect_target",
+        "description": "使用语义检测模型在当前相机画面中检测目标，并返回全部候选目标框。调用时应完整保留用户描述中的位置、距离、序数和外观限定词。",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "target_description": {
+                    "type": "string",
+                    "description": "要检测的完整目标描述，例如“最近的树”“中间的路灯”“左侧第二盏路灯”“红色车辆”。不要把“最近的树”简化成“树”。",
+                }
+            },
+            "required": ["target_description"],
+            "additionalProperties": False,
+        },
+    },
+}
+
 ACTIVATE_SKILL_TOOL_SCHEMA = {
     "type": "function",
     "function": {
@@ -248,6 +267,7 @@ TOOL_SCHEMAS = [
     MOVE_TOOL_SCHEMA,
     TAKE_PHOTO_TOOL_SCHEMA,
     ANALYZE_VIEW_TOOL_SCHEMA,
+    DETECT_TARGET_TOOL_SCHEMA,
 ]
 
 

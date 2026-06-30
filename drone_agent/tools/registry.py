@@ -14,6 +14,7 @@ from .schemas import (
     ANALYZE_VIEW_TOOL_SCHEMA,
     BATTERY_STATUS_TOOL_SCHEMA,
     CURRENT_POSITION_TOOL_SCHEMA,
+    DETECT_TARGET_TOOL_SCHEMA,
     DISARM_TOOL_SCHEMA,
     FLIGHT_MODE_STATUS_TOOL_SCHEMA,
     HOVER_TOOL_SCHEMA,
@@ -124,6 +125,11 @@ def _analyze_view_handler(context: ToolContext, arguments: dict[str, Any]) -> di
     return perception.analyze_view(context, arguments)
 
 
+def _detect_target_handler(context: ToolContext, arguments: dict[str, Any]) -> dict:
+    """转发语义目标检测工具调用。"""
+    return perception.detect_target(context, arguments)
+
+
 def _activate_skill_handler(context: ToolContext, arguments: dict[str, Any]) -> dict:
     """转发 skill 启用工具调用。"""
     return skill.activate_skill(context, arguments.get("name"))
@@ -144,6 +150,7 @@ TOOL_DEFINITIONS = [
     ToolDefinition("move", MOVE_TOOL_SCHEMA, _move_handler),
     ToolDefinition("take_photo", TAKE_PHOTO_TOOL_SCHEMA, _take_photo_handler),
     ToolDefinition("analyze_view", ANALYZE_VIEW_TOOL_SCHEMA, _analyze_view_handler),
+    ToolDefinition("detect_target", DETECT_TARGET_TOOL_SCHEMA, _detect_target_handler),
 ]
 
 TOOL_DEFINITION_BY_NAME = {definition.name: definition for definition in TOOL_DEFINITIONS}

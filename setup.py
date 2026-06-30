@@ -21,6 +21,13 @@ setup(
         ),
         (f"share/{package_name}", ["package.xml"]),
         (os.path.join("share", package_name, "launch"), glob("launch/*")),
+        (
+            "bin",
+            [
+                "scripts/drone_agent_sim",
+                "scripts/drone_agent_real",
+            ],
+        ),
     ],
     package_data={
         "drone_agent.config": ["profiles/*.yaml"],
@@ -29,6 +36,8 @@ setup(
     include_package_data=True,
     install_requires=[
         "setuptools",
+        "dds-cloudapi-sdk",
+        "flask",
         "openai>=1.0",
         "PyYAML>=6.0",
     ],

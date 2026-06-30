@@ -76,6 +76,32 @@ class VlmConfig:
 
 
 @dataclass(frozen=True)
+class DetectorConfig:
+    """语义检测模型配置。"""
+
+    enabled: bool
+    provider: str | None
+    api_key: str | None
+    model: str | None
+    api_path: str | None
+
+    def __post_init__(self) -> None:
+        """在启用检测器时校验 DINO-XSEEK 配置。"""
+        if not self.enabled:
+            return
+        if self.provider != "dinoxseek":
+            raise ValueError(
+                "detector.provider must be 'dinoxseek' when detector.enabled=true"
+            )
+        if not self.api_key:
+            raise ValueError("detector.api_key is required when detector.enabled=true")
+        if not self.model:
+            raise ValueError("detector.model is required when detector.enabled=true")
+        if not self.api_path:
+            raise ValueError("detector.api_path is required when detector.enabled=true")
+
+
+@dataclass(frozen=True)
 class SafetyConfig:
     """飞行安全限制配置。"""
 
@@ -117,6 +143,7 @@ class RuntimeProfile:
     storage: StorageConfig
     llm: ProviderConfig
     vlm: VlmConfig
+    detector: DetectorConfig
     safety: SafetyConfig
 
     def __post_init__(self) -> None:
