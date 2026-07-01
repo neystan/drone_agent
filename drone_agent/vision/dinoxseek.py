@@ -11,6 +11,10 @@ from pathlib import Path
 from typing import Any
 
 from drone_agent.config.schema import RuntimeProfile
+from drone_agent.vision.image_store import (
+    save_detection_boxed_image,
+    show_detection_preview,
+)
 
 
 def detect_image_targets(
@@ -24,7 +28,7 @@ def detect_image_targets(
     result = call_dinoxseek(profile, image_path, target_description)
     latency_ms = int((time.perf_counter() - started_at) * 1000)
     raw_result_path = save_raw_result(result, image_path)
-    return normalize_dinoxseek_result(
+    normalized = normalize_dinoxseek_result(
         profile=profile,
         raw_result=result,
         target_description=target_description,
@@ -33,6 +37,26 @@ def detect_image_targets(
         frame_shape=frame_shape,
         latency_ms=latency_ms,
     )
+    add_detection_visualization(normalized, image_path)
+    return normalized
+
+
+def add_detection_visualization(result: dict[str, Any], image_path: Path) -> None:
+    """为检测结果追加红框保存图和短时预览。"""
+    objects = result.get("objects", [])
+    if not objects:
+        result["boxed_image_path"] = None
+        result["preview_shown"] = False
+        return
+
+    try:
+        boxed_path = save_detection_boxed_image(image_path, objects)
+        result["boxed_image_path"] = str(boxed_path)
+        result["preview_shown"] = show_detection_preview(boxed_path)
+    except Exception as exc:
+        result["boxed_image_path"] = None
+        result["preview_shown"] = False
+        result["visualization_error"] = str(exc)
 
 
 def call_dinoxseek(
@@ -157,16 +181,10 @@ def normalize_object(
     height = y2 - y1
     center_x = x1 + width / 2.0
     center_y = y1 + height / 2.0
-    score = read_optional(obj, "score", 0.0)
-    try:
-        score = float(score)
-    except (TypeError, ValueError):
-        score = 0.0
 
     return {
         "index": index,
         "label": str(read_optional(obj, "category", target_description)),
-        "score": score,
         "bbox_xyxy_px": [round(x1, 2), round(y1, 2), round(x2, 2), round(y2, 2)],
         "bbox_cxcywh_px": [
             round(center_x, 2),
