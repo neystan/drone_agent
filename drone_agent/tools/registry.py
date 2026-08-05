@@ -8,7 +8,7 @@ from typing import Any, Callable
 from drone_agent.bus import MessageBus
 from drone_agent.config.schema import RuntimeProfile
 from drone_agent.runtime.task_state import TaskState
-from . import flight, perception, skill, status
+from . import flight, perception, skill, status, tracking as tracking_tools
 from .schemas import (
     ACTIVATE_SKILL_TOOL_SCHEMA,
     ANALYZE_VIEW_TOOL_SCHEMA,
@@ -20,8 +20,10 @@ from .schemas import (
     HOVER_TOOL_SCHEMA,
     LAND_TOOL_SCHEMA,
     MOVE_TOOL_SCHEMA,
+    MOUSE_TRACKING_TOOL_SCHEMA,
     RETURN_HOME_TOOL_SCHEMA,
     ROTATE_TOOL_SCHEMA,
+    SAM_TRACKING_TOOL_SCHEMA,
     TAKEOFF_TOOL_SCHEMA,
     TAKE_PHOTO_TOOL_SCHEMA,
     TIMER_TOOL_SCHEMA,
@@ -130,6 +132,16 @@ def _detect_target_handler(context: ToolContext, arguments: dict[str, Any]) -> d
     return perception.detect_target(context, arguments)
 
 
+def _sam_tracking_handler(context: ToolContext, arguments: dict[str, Any]) -> dict:
+    """转发 SAM2 语义目标追踪工具调用。"""
+    return tracking_tools.sam_tracking(context, arguments)
+
+
+def _mouse_tracking_handler(context: ToolContext, arguments: dict[str, Any]) -> dict:
+    """转发 SAM2 鼠标选点追踪工具调用。"""
+    return tracking_tools.mouse_tracking(context, arguments)
+
+
 def _activate_skill_handler(context: ToolContext, arguments: dict[str, Any]) -> dict:
     """转发 skill 启用工具调用。"""
     return skill.activate_skill(context, arguments.get("name"))
@@ -151,6 +163,8 @@ TOOL_DEFINITIONS = [
     ToolDefinition("take_photo", TAKE_PHOTO_TOOL_SCHEMA, _take_photo_handler),
     ToolDefinition("analyze_view", ANALYZE_VIEW_TOOL_SCHEMA, _analyze_view_handler),
     ToolDefinition("detect_target", DETECT_TARGET_TOOL_SCHEMA, _detect_target_handler),
+    ToolDefinition("sam_tracking", SAM_TRACKING_TOOL_SCHEMA, _sam_tracking_handler),
+    ToolDefinition("mouse_tracking", MOUSE_TRACKING_TOOL_SCHEMA, _mouse_tracking_handler),
 ]
 
 TOOL_DEFINITION_BY_NAME = {definition.name: definition for definition in TOOL_DEFINITIONS}

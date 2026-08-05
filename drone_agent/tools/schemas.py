@@ -233,6 +233,54 @@ DETECT_TARGET_TOOL_SCHEMA = {
     },
 }
 
+SAM_TRACKING_TOOL_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "sam_tracking",
+        "description": "使用 DINO-XSeek 自动语义检测初始化目标框，再由 SAM2 追踪。该路径可能产生付费 API 流量。支持 start、restart、status、stop；status 和 stop 不会重新检测。",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["start", "restart", "status", "stop"],
+                    "description": "start 启动追踪，restart 更换或重新锁定目标，status 被动查询一次目标位置，stop 停止追踪。",
+                },
+                "target_description": {
+                    "type": "string",
+                    "description": "start 或 restart 时必填，必须完整保留用户描述中的限定词，例如“最近的树”“左侧第二盏路灯”。",
+                },
+                "target_index": {
+                    "type": "integer",
+                    "description": "当 DINO-XSEEK 检测到多个候选目标时，指定红框图中的目标索引。",
+                },
+            },
+            "required": ["action"],
+            "additionalProperties": False,
+        },
+    },
+}
+
+MOUSE_TRACKING_TOOL_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "mouse_tracking",
+        "description": "免费鼠标手动选点并由 SAM2 持续追踪，不调用 DINO-XSeek 或其他语义检测器。支持 start、restart、status、stop。",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["start", "restart", "status", "stop"],
+                    "description": "start 等待鼠标点击并启动追踪，restart 点击新目标并切换追踪，status 查询状态，stop 停止追踪。",
+                }
+            },
+            "required": ["action"],
+            "additionalProperties": False,
+        },
+    },
+}
+
 ACTIVATE_SKILL_TOOL_SCHEMA = {
     "type": "function",
     "function": {
@@ -268,6 +316,8 @@ TOOL_SCHEMAS = [
     TAKE_PHOTO_TOOL_SCHEMA,
     ANALYZE_VIEW_TOOL_SCHEMA,
     DETECT_TARGET_TOOL_SCHEMA,
+    SAM_TRACKING_TOOL_SCHEMA,
+    MOUSE_TRACKING_TOOL_SCHEMA,
 ]
 
 

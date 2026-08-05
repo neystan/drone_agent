@@ -11,10 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from drone_agent.config.schema import RuntimeProfile
-from drone_agent.vision.image_store import (
-    save_detection_boxed_image,
-    show_detection_preview,
-)
+from drone_agent.vision.overlay import clear_detection_overlay, write_detection_overlay
 
 
 def detect_image_targets(
@@ -42,20 +39,16 @@ def detect_image_targets(
 
 
 def add_detection_visualization(result: dict[str, Any], image_path: Path) -> None:
-    """为检测结果追加红框保存图和短时预览。"""
+    """把检测框写入相机预览 overlay。"""
     objects = result.get("objects", [])
     if not objects:
-        result["boxed_image_path"] = None
-        result["preview_shown"] = False
+        clear_detection_overlay()
         return
 
     try:
-        boxed_path = save_detection_boxed_image(image_path, objects)
-        result["boxed_image_path"] = str(boxed_path)
-        result["preview_shown"] = show_detection_preview(boxed_path)
+        write_detection_overlay(objects)
+        result["overlay_updated"] = True
     except Exception as exc:
-        result["boxed_image_path"] = None
-        result["preview_shown"] = False
         result["visualization_error"] = str(exc)
 
 
