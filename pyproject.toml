@@ -22,5 +22,5 @@ drone_agent_sim = "drone_agent.cli:main_sim"
 drone_agent_real = "drone_agent.cli:main_real"
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["test"]
 pythonpath = ["."]

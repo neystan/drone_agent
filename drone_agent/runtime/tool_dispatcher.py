@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from typing import Any
 
 from drone_agent.bus.intervention import interrupt_if_requested
@@ -42,8 +43,8 @@ def dispatch_tool_call(context: ToolContext, call: Any) -> dict:
         return result
 
     try:
-        arguments = json.loads(raw_arguments)
-    except json.JSONDecodeError as exc:
+        arguments = _parse_tool_arguments(raw_arguments)
+    except (json.JSONDecodeError, ValueError) as exc:
         result = {
             "success": False,
             "error": "INVALID_TOOL_ARGUMENTS",
@@ -114,6 +115,30 @@ def dispatch_tool_call(context: ToolContext, call: Any) -> dict:
             result,
         )
     return result
+
+
+def _parse_tool_arguments(raw_arguments: str) -> Any:
+    """解析工具参数并拒绝所有非有限 JSON 数值。"""
+    arguments = json.loads(raw_arguments, parse_constant=_reject_json_constant)
+    if _contains_non_finite_number(arguments):
+        raise ValueError("tool arguments contain a non-finite number")
+    return arguments
+
+
+def _reject_json_constant(value: str) -> None:
+    """拒绝 JSON 标准之外的 NaN 和 Infinity 常量。"""
+    raise ValueError(f"non-finite JSON number is not allowed: {value}")
+
+
+def _contains_non_finite_number(value: Any) -> bool:
+    """递归检查解析后的 JSON 值。"""
+    if isinstance(value, float):
+        return not math.isfinite(value)
+    if isinstance(value, list):
+        return any(_contains_non_finite_number(item) for item in value)
+    if isinstance(value, dict):
+        return any(_contains_non_finite_number(item) for item in value.values())
+    return False
 
 
 def _update_task_state(

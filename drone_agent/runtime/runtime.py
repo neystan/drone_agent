@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+import sys
 from dataclasses import dataclass
 from typing import Any
 
@@ -12,6 +13,7 @@ from drone_agent.logging.task_log import create_session_id, log_agent_message, l
 from drone_agent.llm.client import create_llm_client
 from drone_agent.llm.prompts import SYSTEM_PROMPT
 from drone_agent.runtime.task_state import TaskState, format_task_state_line
+from drone_agent.runtime.safety import SafetyHandoffRequired
 from drone_agent.runtime.terminal import open_input_terminal
 from drone_agent.skills.context import build_skills_index
 from drone_agent.skills.loader import Skill, SkillsLoader
@@ -91,6 +93,10 @@ def _start_live_runtime(profile) -> None:
             skills=skills,
             input_terminal_started=input_terminal_started,
         )
+    except SafetyHandoffRequired as exc:
+        message = str(exc)
+        print(message, file=sys.stderr, flush=True)
+        log_agent_message(profile, session_id, "safety", message)
     finally:
         if input_server is not None:
             input_server.stop()

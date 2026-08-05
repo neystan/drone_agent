@@ -7,30 +7,92 @@ import time
 from typing import Any
 
 from drone_agent.bus.intervention import interrupt_if_requested
+from drone_agent.px4.frame import is_finite_number
+from drone_agent.runtime.safety import request_confirmed_hover
 
 
 WAIT_FOR_POSITION_TIMEOUT_S = 3.0
 LAND_TIMEOUT_S = 45.0
 MIN_IN_AIR_ALTITUDE_M = -0.3
 MAX_ALTITUDE_NED_M = -10.0
+COMMAND_ACK_TIMEOUT_S = 2.0
 
-#控制工具
-def switch_to_hover_on_timeout(controller: Any) -> None:
-    """在动作超时后切换到 PX4 悬停模式。"""
-    controller.stop_position_hold()
-    controller.send_hover_command()
-    auto_loiter_state = getattr(
-        controller.vehicle_status.__class__,
-        "NAVIGATION_STATE_AUTO_LOITER",
-        None,
+
+def _nav_state_constant(controller: Any, name: str, fallback: int) -> int:
+    """读取 PX4 导航状态常量。"""
+    resolver = getattr(controller, "nav_state_constant", None)
+    if resolver is not None:
+        return int(resolver(name, fallback))
+    return int(getattr(controller.vehicle_status.__class__, name, fallback))
+
+
+def _arming_state_constant(controller: Any, name: str, fallback: int) -> int:
+    """读取 PX4 解锁状态常量。"""
+    return int(getattr(controller.vehicle_status.__class__, name, fallback))
+
+
+def _ack_accepted(controller: Any, ack: Any) -> bool:
+    """判断 ACK 是否接受。"""
+    checker = getattr(controller, "is_command_ack_accepted", None)
+    if checker is not None:
+        return bool(checker(ack))
+    return int(getattr(ack, "result", -1)) == 0
+
+
+def _ack_result_name(controller: Any, ack: Any) -> str:
+    """读取 ACK 结果名称。"""
+    formatter = getattr(controller, "command_ack_result_name", None)
+    if formatter is not None:
+        return str(formatter(ack))
+    return str(getattr(ack, "result_name", getattr(ack, "result", "UNKNOWN")))
+
+
+def _ack_result_or_timeout(controller: Any, ack: Any) -> str:
+    """保留 ACK 结果，或明确标记未收到 ACK。"""
+    return "ACK_TIMEOUT" if ack is None else _ack_result_name(controller, ack)
+
+
+def _confirm_nav_command(
+    controller: Any,
+    request: Any,
+    command_name: str,
+    state_name: str,
+    state_fallback: int,
+    success_message: str,
+) -> dict[str, Any]:
+    """确认命令 ACK 和目标导航状态。"""
+    ack = controller.wait_for_command_ack(request, timeout_s=COMMAND_ACK_TIMEOUT_S)
+    if ack is not None and not _ack_accepted(controller, ack):
+        return {
+            "success": False,
+            "error": "PX4_COMMAND_REJECTED",
+            "command": command_name,
+            "px4_result": _ack_result_name(controller, ack),
+        }
+
+    expected_state = _nav_state_constant(controller, state_name, state_fallback)
+    state_confirmed = controller.wait_for_nav_state(
+        expected_state,
+        timeout_s=COMMAND_ACK_TIMEOUT_S,
     )
-    if auto_loiter_state is None:
-        controller.get_logger().warn(
-            "NAVIGATION_STATE_AUTO_LOITER is unavailable; hover mode was not confirmed"
-        )
-        return
-    if not controller.wait_for_nav_state(auto_loiter_state, timeout_s=2.0):
-        controller.get_logger().warn("AUTO_LOITER mode was not confirmed")
+    if not state_confirmed:
+        return {
+            "success": False,
+            "error": "PX4_STATE_UNCONFIRMED",
+            "command": command_name,
+            "ack_received": ack is not None,
+            "px4_result": _ack_result_or_timeout(controller, ack),
+        }
+
+    controller.stop_position_hold()
+    return {
+        "success": True,
+        "message": success_message,
+        "command": command_name,
+        "ack_received": ack is not None,
+        "state_confirmed": True,
+        "px4_result": _ack_result_or_timeout(controller, ack),
+    }
 
 
 def _wait_for_valid_position(controller: Any) -> bool:
@@ -96,7 +158,7 @@ def takeoff(context: Any, height: float) -> dict:
     """控制无人机原地起飞到目标高度。"""
     controller = context.controller
     profile = context.profile
-    if not isinstance(height, (int, float)):
+    if not is_finite_number(height):
         return {
             "success": False,
             "error": "INVALID_HEIGHT_TYPE",
@@ -163,12 +225,12 @@ def takeoff(context: Any, height: float) -> dict:
             }
         time.sleep(controller.timer_period)
 
-    if profile.safety.hover_on_timeout:
-        switch_to_hover_on_timeout(controller)
+    safety_result = request_confirmed_hover(controller, action_name="takeoff")
     return {
         "success": False,
         "error": "TAKEOFF_TIMEOUT",
-        "message": "takeoff did not reach target height within timeout. Auto switched to hover mode.",
+        **safety_result,
+        "message": "takeoff timed out; PX4 AUTO_LOITER confirmed",
         "target_position_ned": target_position,
         "final_position_ned": controller.current_position_ned(),
     }
@@ -192,8 +254,16 @@ def land(context: Any) -> dict:
             "message": "uav is already on the ground",
         }
 
-    controller.stop_position_hold()
-    controller.send_land_command()
+    command_result = _confirm_nav_command(
+        controller,
+        controller.send_land_command(),
+        "land",
+        "NAVIGATION_STATE_AUTO_LAND",
+        18,
+        "AUTO_LAND confirmed; landing started",
+    )
+    if not command_result["success"]:
+        return command_result
 
     timeout = time.time() + max(profile.safety.action_timeout_s, LAND_TIMEOUT_S)
     while time.time() < timeout:
@@ -208,24 +278,46 @@ def land(context: Any) -> dict:
             }
         time.sleep(controller.timer_period)
 
-    if profile.safety.hover_on_timeout:
-        switch_to_hover_on_timeout(controller)
+    safety_result = request_confirmed_hover(controller, action_name="land")
     return {
         "success": False,
         "error": "LAND_TIMEOUT",
-        "message": "landing did not complete within timeout. Auto switched to hover mode.",
+        **safety_result,
+        "message": "land timed out; PX4 AUTO_LOITER confirmed",
         "final_position_ned": controller.current_position_ned(),
     }
 
 
 def disarm(controller: Any) -> dict:
     """发送电机上锁命令。"""
+    request = controller.send_disarm_command()
+    ack = controller.wait_for_command_ack(request, timeout_s=COMMAND_ACK_TIMEOUT_S)
+    if ack is not None and not _ack_accepted(controller, ack):
+        return {
+            "success": False,
+            "error": "PX4_COMMAND_REJECTED",
+            "command": "disarm",
+            "px4_result": _ack_result_name(controller, ack),
+        }
+
+    expected_state = _arming_state_constant(controller, "ARMING_STATE_DISARMED", 1)
+    if not controller.wait_for_arming_state(expected_state, timeout_s=COMMAND_ACK_TIMEOUT_S):
+        return {
+            "success": False,
+            "error": "PX4_STATE_UNCONFIRMED",
+            "command": "disarm",
+            "ack_received": ack is not None,
+            "px4_result": _ack_result_or_timeout(controller, ack),
+        }
+
     controller.stop_position_hold()
-    controller.send_disarm_command()
-    time.sleep(0.5)
     return {
         "success": True,
-        "message": "uav disarm command sent",
+        "message": "PX4 disarmed state confirmed",
+        "command": "disarm",
+        "ack_received": ack is not None,
+        "state_confirmed": True,
+        "px4_result": _ack_result_or_timeout(controller, ack),
     }
 
 
@@ -291,13 +383,14 @@ def hover(controller: Any) -> dict:
             "message": "uav is on the ground and cannot enter hover mode",
         }
 
-    controller.stop_position_hold()
-    controller.send_hover_command()
-    time.sleep(0.5)
-    return {
-        "success": True,
-        "message": "hover mode engaged with AUTO_LOITER",
-    }
+    return _confirm_nav_command(
+        controller,
+        controller.send_hover_command(),
+        "hover",
+        "NAVIGATION_STATE_AUTO_LOITER",
+        4,
+        "PX4 AUTO_LOITER confirmed",
+    )
 
 
 def return_home(controller: Any) -> dict:
@@ -316,13 +409,14 @@ def return_home(controller: Any) -> dict:
             "message": "uav is on the ground and cannot return home",
         }
 
-    controller.stop_position_hold()
-    controller.send_return_home_command()
-    time.sleep(0.5)
-    return {
-        "success": True,
-        "message": "return-to-home mode engaged with PX4 RTL",
-    }
+    return _confirm_nav_command(
+        controller,
+        controller.send_return_home_command(),
+        "return_home",
+        "NAVIGATION_STATE_AUTO_RTL",
+        5,
+        "PX4 AUTO_RTL confirmed; return-to-home started",
+    )
 
 
 def rotate(context: Any, direction: str, degrees: float) -> dict:
@@ -336,7 +430,7 @@ def rotate(context: Any, direction: str, degrees: float) -> dict:
             "message": "direction must be 'left' or 'right'",
         }
 
-    if not isinstance(degrees, (int, float)):
+    if not is_finite_number(degrees):
         return {
             "success": False,
             "error": "INVALID_DEGREES_TYPE",
@@ -451,12 +545,12 @@ def rotate(context: Any, direction: str, degrees: float) -> dict:
 
         time.sleep(controller.timer_period)
 
-    if profile.safety.hover_on_timeout:
-        switch_to_hover_on_timeout(controller)
+    safety_result = request_confirmed_hover(controller, action_name="rotate")
     return {
         "success": False,
         "error": "ROTATE_TIMEOUT",
-        "message": "rotate did not reach target angle within timeout. Auto switched to hover mode.",
+        **safety_result,
+        "message": "rotate timed out; PX4 AUTO_LOITER confirmed",
         "direction": direction,
         "target_yaw_rad": previous_heading,
         "final_position_ned": controller.current_position_ned(),
@@ -468,7 +562,7 @@ def move(context: Any, x: float, y: float, z: float) -> dict:
     controller = context.controller
     profile = context.profile
     for name, value in (("x", x), ("y", y), ("z", z)):
-        if not isinstance(value, (int, float)):
+        if not is_finite_number(value):
             return {
                 "success": False,
                 "error": f"INVALID_{name.upper()}_TYPE",
@@ -559,12 +653,12 @@ def move(context: Any, x: float, y: float, z: float) -> dict:
             }
         time.sleep(controller.timer_period)
 
-    if profile.safety.hover_on_timeout:
-        switch_to_hover_on_timeout(controller)
+    safety_result = request_confirmed_hover(controller, action_name="move")
     return {
         "success": False,
         "error": "MOVE_TIMEOUT",
-        "message": "move did not reach target position within timeout. Auto switched to hover mode.",
+        **safety_result,
+        "message": "move timed out; PX4 AUTO_LOITER confirmed",
         "body_offset_frd": [x, y, z],
         "target_position_ned": target_position,
         "final_position_ned": controller.current_position_ned(),

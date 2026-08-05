@@ -3,6 +3,17 @@
 from __future__ import annotations
 
 import math
+from numbers import Real
+
+
+def is_finite_number(value: object) -> bool:
+    """判断值是否为可安全发送给 PX4 的有限实数。"""
+    if not isinstance(value, Real) or isinstance(value, bool):
+        return False
+    try:
+        return math.isfinite(value)
+    except (TypeError, OverflowError):
+        return False
 
 
 def body_to_ned(

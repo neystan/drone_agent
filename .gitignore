@@ -47,3 +47,7 @@ log/
 logs/
 *.db3
 *.mcap
+
+# Local agent workspace artifacts
+.codex-backups/
+docs/superpowers/

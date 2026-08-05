@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import math
+import threading
 import time
+from collections import deque
+from dataclasses import dataclass
+from typing import Any
 
 from cv_bridge import CvBridge
 from rclpy.node import Node
@@ -15,16 +19,18 @@ from px4_msgs.msg import (
     OffboardControlMode,
     TrajectorySetpoint,
     VehicleCommand,
+    VehicleCommandAck,
     VehicleLocalPosition,
     VehicleStatus,
 )
 
-from drone_agent.px4.frame import body_to_ned, normalize_angle
+from drone_agent.px4.frame import body_to_ned, is_finite_number, normalize_angle
 from drone_agent.px4.topics import (
     BATTERY_STATUS_TOPIC,
     OFFBOARD_CONTROL_MODE_TOPIC,
     TRAJECTORY_SETPOINT_TOPIC,
     VEHICLE_COMMAND_TOPIC,
+    VEHICLE_COMMAND_ACK_TOPIC,
     VEHICLE_LOCAL_POSITION_TOPIC,
     VEHICLE_STATUS_TOPIC,
 )
@@ -33,6 +39,25 @@ from drone_agent.px4.topics import (
 DEFAULT_POSITION_TOLERANCE_M = 0.3
 DEFAULT_YAW_TOLERANCE_RAD = math.radians(5.0)
 DEFAULT_TIMER_PERIOD_S = 0.1
+
+
+@dataclass(frozen=True)
+class CommandRequest:
+    """记录一条命令发送前的 ACK 序号。"""
+
+    command: int
+    ack_sequence_before: int
+
+
+PX4_COMMAND_RESULT_NAMES = {
+    0: "ACCEPTED",
+    1: "TEMPORARILY_REJECTED",
+    2: "DENIED",
+    3: "UNSUPPORTED",
+    4: "FAILED",
+    5: "IN_PROGRESS",
+    6: "CANCELLED",
+}
 
 
 class Px4Controller(Node):
@@ -87,6 +112,12 @@ class Px4Controller(Node):
             self.battery_status_callback,
             qos_profile,
         )
+        self.create_subscription(
+            VehicleCommandAck,
+            VEHICLE_COMMAND_ACK_TOPIC,
+            self.vehicle_command_ack_callback,
+            qos_profile,
+        )
         if camera_scene_topic:
             self.create_subscription(
                 Image,
@@ -100,6 +131,10 @@ class Px4Controller(Node):
         self.battery_status = BatteryStatus()
         self.vehicle_status_received = False
         self.battery_status_received = False
+        self.vehicle_command_ack = None
+        self.vehicle_command_ack_sequence = 0
+        self.vehicle_command_ack_history: deque[tuple[int, Any]] = deque(maxlen=64)
+        self._vehicle_command_ack_lock = threading.Lock()
         self.bridge = CvBridge()
         self.latest_rgb_frame = None
         self.position_tolerance = DEFAULT_POSITION_TOLERANCE_M
@@ -129,6 +164,15 @@ class Px4Controller(Node):
         """更新电池状态缓存。"""
         self.battery_status = msg
         self.battery_status_received = True
+
+    def vehicle_command_ack_callback(self, msg: VehicleCommandAck) -> None:
+        """缓存 PX4 命令 ACK，并推进序号。"""
+        with self._vehicle_command_ack_lock:
+            self.vehicle_command_ack_sequence += 1
+            self.vehicle_command_ack = msg
+            self.vehicle_command_ack_history.append(
+                (self.vehicle_command_ack_sequence, msg)
+            )
 
     def rgb_image_callback(self, msg: Image) -> None:
         """把 ROS 图像消息转换并缓存为 OpenCV 图像。"""
@@ -160,6 +204,7 @@ class Px4Controller(Node):
         yawspeed: float | None = None,
     ) -> None:
         """发布位置控制 setpoint。"""
+        self._validate_setpoint(position, yaw, yawspeed)
         msg = TrajectorySetpoint()
         msg.position = position
         msg.yaw = float("nan") if yaw is None else yaw
@@ -167,8 +212,9 @@ class Px4Controller(Node):
         msg.timestamp = self.timestamp_us()
         self.trajectory_setpoint_publisher.publish(msg)
 
-    def publish_vehicle_command(self, command: int, **params: float) -> None:
-        """发布 PX4 vehicle command。"""
+    def publish_vehicle_command(self, command: int, **params: float) -> CommandRequest:
+        """发布 PX4 vehicle command 并返回 ACK 请求句柄。"""
+        request = self._build_command_request(command)
         msg = VehicleCommand()
         msg.command = command
         msg.param1 = params.get("param1", 0.0)
@@ -185,6 +231,92 @@ class Px4Controller(Node):
         msg.from_external = True
         msg.timestamp = self.timestamp_us()
         self.vehicle_command_publisher.publish(msg)
+        return request
+
+    def _build_command_request(self, command: int) -> CommandRequest:
+        """记录命令发送前的 ACK 序号。"""
+        return CommandRequest(
+            command=int(command),
+            ack_sequence_before=int(getattr(self, "vehicle_command_ack_sequence", 0)),
+        )
+
+    def get_command_ack(self, request: CommandRequest) -> Any | None:
+        """返回该请求之后、命令号匹配的最新 ACK。"""
+        lock = getattr(self, "_vehicle_command_ack_lock", None)
+        if lock is None:
+            history = tuple(getattr(self, "vehicle_command_ack_history", ()))
+            latest_sequence = int(getattr(self, "vehicle_command_ack_sequence", 0))
+            ack = getattr(self, "vehicle_command_ack", None)
+        else:
+            with lock:
+                history = tuple(getattr(self, "vehicle_command_ack_history", ()))
+                latest_sequence = int(getattr(self, "vehicle_command_ack_sequence", 0))
+                ack = getattr(self, "vehicle_command_ack", None)
+        for sequence, ack in reversed(history):
+            if sequence > request.ack_sequence_before and getattr(ack, "command", None) == request.command:
+                return ack
+
+        if (
+            latest_sequence > request.ack_sequence_before
+            and ack is not None
+            and getattr(ack, "command", None) == request.command
+        ):
+            return ack
+        return None
+
+    def wait_for_command_ack(
+        self,
+        request: CommandRequest,
+        timeout_s: float,
+    ) -> Any | None:
+        """等待该请求对应的 PX4 ACK。"""
+        deadline = time.monotonic() + max(0.0, timeout_s)
+        while time.monotonic() < deadline:
+            ack = self.get_command_ack(request)
+            if ack is not None:
+                return ack
+            time.sleep(self.timer_period)
+        return self.get_command_ack(request)
+
+    def is_command_ack_accepted(self, ack: Any) -> bool:
+        """判断 PX4 ACK 是否为接受结果。"""
+        return int(getattr(ack, "result", -1)) == 0
+
+    def command_ack_result_name(self, ack: Any) -> str:
+        """把 PX4 ACK 结果转换为稳定名称。"""
+        result = int(getattr(ack, "result", -1))
+        return PX4_COMMAND_RESULT_NAMES.get(result, f"UNKNOWN_{result}")
+
+    def nav_state_constant(self, name: str, fallback: int) -> int:
+        """读取 PX4 VehicleStatus 导航状态常量。"""
+        return int(getattr(self.vehicle_status.__class__, name, fallback))
+
+    def wait_for_arming_state(self, expected_arming_state: int, timeout_s: float) -> bool:
+        """等待飞控切换到指定解锁状态。"""
+        deadline = time.time() + timeout_s
+        while time.time() < deadline:
+            if self.vehicle_status.arming_state == expected_arming_state:
+                return True
+            time.sleep(self.timer_period)
+        return self.vehicle_status.arming_state == expected_arming_state
+
+    @staticmethod
+    def _validate_setpoint(
+        position: list[float],
+        yaw: float | None,
+        yawspeed: float | None,
+    ) -> None:
+        """拒绝任何会把异常浮点数发送给 PX4 的 setpoint。"""
+        if (
+            not isinstance(position, (list, tuple))
+            or len(position) != 3
+            or any(not is_finite_number(value) for value in position)
+        ):
+            raise ValueError("position must contain exactly three finite numbers")
+        if yaw is not None and not is_finite_number(yaw):
+            raise ValueError("yaw must be finite when specified")
+        if yawspeed is not None and not is_finite_number(yawspeed):
+            raise ValueError("yawspeed must be finite when specified")
 
     #机体转NED
     def body_to_ned(
@@ -202,50 +334,56 @@ class Px4Controller(Node):
         return normalize_angle(angle)
 
     #控制基础实现
-    def send_offboard_mode_command(self) -> None:
+    def send_offboard_mode_command(self) -> CommandRequest:
         """请求切换到 PX4 offboard 模式。"""
-        self.publish_vehicle_command(
+        request = self.publish_vehicle_command(
             VehicleCommand.VEHICLE_CMD_DO_SET_MODE,
             param1=1.0,
             param2=6.0,
         )
         self.get_logger().info("Switching to offboard mode")
+        return request
 
-    def send_arm_command(self) -> None:
+    def send_arm_command(self) -> CommandRequest:
         """发送解锁命令。"""
-        self.publish_vehicle_command(
+        request = self.publish_vehicle_command(
             VehicleCommand.VEHICLE_CMD_COMPONENT_ARM_DISARM,
             param1=1.0,
         )
         self.get_logger().info("Arm command sent")
+        return request
 
-    def send_disarm_command(self) -> None:
+    def send_disarm_command(self) -> CommandRequest:
         """发送上锁命令。"""
-        self.publish_vehicle_command(
+        request = self.publish_vehicle_command(
             VehicleCommand.VEHICLE_CMD_COMPONENT_ARM_DISARM,
             param1=0.0,
         )
         self.get_logger().info("Disarm command sent")
+        return request
 
-    def send_land_command(self) -> None:
+    def send_land_command(self) -> CommandRequest:
         """发送降落命令。"""
-        self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_NAV_LAND)
+        request = self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_NAV_LAND)
         self.get_logger().info("Switching to land mode")
+        return request
 
-    def send_hover_command(self) -> None:
+    def send_hover_command(self) -> CommandRequest:
         """发送悬停模式切换命令。"""
-        self.publish_vehicle_command(
+        request = self.publish_vehicle_command(
             VehicleCommand.VEHICLE_CMD_DO_SET_MODE,
             param1=1.0,
             param2=4.0,
             param3=3.0,
         )
         self.get_logger().info("Switching to AUTO_LOITER hover mode")
+        return request
 
-    def send_return_home_command(self) -> None:
+    def send_return_home_command(self) -> CommandRequest:
         """发送返航模式切换命令。"""
-        self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_NAV_RETURN_TO_LAUNCH)
+        request = self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_NAV_RETURN_TO_LAUNCH)
         self.get_logger().info("Switching to return-to-launch mode")
+        return request
 
     def uav_is_in_air(self) -> bool:
         """根据本地高度判断无人机是否已经离地。"""
@@ -297,6 +435,7 @@ class Px4Controller(Node):
         yawspeed: float | None = None,
     ) -> None:
         """开始持续发布位置保持 setpoint。"""
+        self._validate_setpoint(position, yaw, yawspeed)
         self.target_position = position
         self.target_yaw = yaw
         self.target_yawspeed = yawspeed
