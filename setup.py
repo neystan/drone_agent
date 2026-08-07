@@ -37,8 +37,9 @@ setup(
     include_package_data=True,
     install_requires=[
         "setuptools",
-        "dds-cloudapi-sdk",
-        "flask",
+        "dds-cloudapi-sdk==0.5.3",
+        "Flask==2.3.3",
+        "numpy>=1.24.4,<2",
         "openai>=1.0",
         "PyYAML>=6.0",
     ],
