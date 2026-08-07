@@ -95,6 +95,28 @@ def _confirm_nav_command(
     }
 
 
+def _handle_position_hold_start_failure(
+    controller: Any,
+    action_name: str,
+    airborne: bool,
+) -> dict[str, Any]:
+    """处理 Offboard/解锁握手失败，并在空中确认悬停或移交安全控制。"""
+    error = str(getattr(controller, "position_hold_start_error", None) or "OFFBOARD_NOT_CONFIRMED")
+    if airborne:
+        safety_result = request_confirmed_hover(controller, action_name=action_name)
+        return {
+            "success": False,
+            "error": error,
+            **safety_result,
+            "message": f"{action_name} could not confirm Offboard/arming; PX4 AUTO_LOITER confirmed",
+        }
+    return {
+        "success": False,
+        "error": error,
+        "message": f"{action_name} could not confirm Offboard/arming",
+    }
+
+
 def _wait_for_valid_position(controller: Any) -> bool:
     """等待本地位置状态变为有效。"""
     wait_deadline = time.time() + WAIT_FOR_POSITION_TIMEOUT_S
@@ -204,7 +226,8 @@ def takeoff(context: Any, height: float) -> dict:
         current_position.y,
         current_position.z - height,
     ]
-    controller.start_position_hold(target_position)
+    if controller.start_position_hold(target_position) is False:
+        return _handle_position_hold_start_failure(controller, "takeoff", airborne=False)
     controller.get_logger().info(f"takeoff(height={height}) accepted, target={target_position}")
 
     timeout = time.time() + profile.safety.action_timeout_s
@@ -476,7 +499,8 @@ def rotate(context: Any, direction: str, degrees: float) -> dict:
 
     target_position = controller.current_position_ned()
     if degrees == 0.0:
-        controller.start_position_hold(target_position, current_heading)
+        if controller.start_position_hold(target_position, current_heading) is False:
+            return _handle_position_hold_start_failure(controller, "rotate", airborne=True)
         return {
             "success": True,
             "message": "rotate complete after 0.0 degrees",
@@ -488,7 +512,8 @@ def rotate(context: Any, direction: str, degrees: float) -> dict:
     if direction == "left":
         commanded_yawspeed = -commanded_yawspeed
 
-    controller.start_position_hold(target_position, yawspeed=commanded_yawspeed)
+    if controller.start_position_hold(target_position, yawspeed=commanded_yawspeed) is False:
+        return _handle_position_hold_start_failure(controller, "rotate", airborne=True)
     controller.get_logger().info(
         f"rotate(direction={direction}, degrees={degrees}) accepted, heading={current_heading}, yawspeed={commanded_yawspeed}"
     )
@@ -520,7 +545,8 @@ def rotate(context: Any, direction: str, degrees: float) -> dict:
 
         if accumulated_degrees >= degrees:
             final_heading = heading
-            controller.start_position_hold(target_position, final_heading)
+            if controller.start_position_hold(target_position, final_heading) is False:
+                return _handle_position_hold_start_failure(controller, "rotate", airborne=True)
             settle_timeout = time.time() + 3.0
             while time.time() < settle_timeout:
                 interrupted = interrupt_if_requested(context, hover_on_flight_tool=True)
@@ -632,7 +658,8 @@ def move(context: Any, x: float, y: float, z: float) -> dict:
             "target_position_ned": target_position,
         }
 
-    controller.start_position_hold(target_position)
+    if controller.start_position_hold(target_position) is False:
+        return _handle_position_hold_start_failure(controller, "move", airborne=True)
     controller.get_logger().info(
         f"move(body_x={x}, body_y={y}, body_z={z}) accepted, heading={heading}, target={target_position}"
     )

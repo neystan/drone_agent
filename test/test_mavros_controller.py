@@ -154,3 +154,50 @@ def test_sensor_subscriptions_use_sensor_data_qos() -> None:
     )
 
     assert "qos_profile_sensor_data" in controller_source
+
+
+def test_timer_waits_for_offboard_before_requesting_arm() -> None:
+    """验证定时器只有确认 Offboard 后才发送解锁请求。"""
+    controller = object.__new__(Px4Controller)
+    controller.target_position = [0.0, 0.0, -1.0]
+    controller.target_yaw = None
+    controller.target_yawspeed = None
+    controller.setpoint_counter = 10
+    controller.offboard_command_sent = False
+    controller.arm_command_sent = False
+    controller.offboard_confirmed = False
+    controller.arming_confirmed = False
+    controller.vehicle_status = SimpleNamespace(mode="", armed=False, connected=True)
+    controller.publish_position_setpoint = lambda *_args: None
+    controller.send_offboard_mode_command = lambda: SimpleNamespace()
+    arm_requests: list[bool] = []
+    controller.send_arm_command = lambda: arm_requests.append(True)
+
+    controller.timer_callback()
+
+    assert controller.offboard_command_sent is True
+    assert arm_requests == []
+
+    controller.timer_callback()
+
+    assert arm_requests == []
+
+    controller.vehicle_status.mode = "OFFBOARD"
+    controller.timer_callback()
+
+    assert arm_requests == [True]
+
+
+def test_start_position_hold_returns_false_when_handshake_fails() -> None:
+    """验证 Offboard/解锁握手失败时停止 hold 并返回失败。"""
+    controller = object.__new__(Px4Controller)
+    controller.vehicle_status = SimpleNamespace(mode="", armed=False, connected=True)
+    controller.wait_for_offboard_and_arm = lambda _timeout_s: False
+    controller.position_hold_start_error = "OFFBOARD_NOT_CONFIRMED"
+    stopped: list[bool] = []
+    controller.stop_position_hold = lambda: stopped.append(True)
+
+    result = controller.start_position_hold([0.0, 0.0, -1.0])
+
+    assert result is False
+    assert stopped == [True]

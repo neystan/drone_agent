@@ -225,6 +225,21 @@ class TimeoutHandoffTest(unittest.TestCase):
         self.assertEqual(result["message"], "move timed out; PX4 AUTO_LOITER confirmed")
         controller.stop_position_hold.assert_called_once()
 
+
+class OffboardStartupTest(unittest.TestCase):
+    def test_takeoff_returns_when_offboard_startup_fails(self) -> None:
+        """验证 Offboard 启动握手失败时起飞立即返回失败。"""
+        context = _flight_context()
+        controller = context.controller
+        controller.start_position_hold = Mock(return_value=False)
+        controller.position_hold_start_error = "OFFBOARD_NOT_CONFIRMED"
+
+        result = flight.takeoff(context, 1.0)
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "OFFBOARD_NOT_CONFIRMED")
+        controller.start_position_hold.assert_called_once()
+
     def test_timeout_without_hover_confirmation_raises_safety_handoff(self) -> None:
         """验证悬停未确认时停止 hold 并触发安全交接异常。"""
         context = _flight_context()
@@ -262,6 +277,7 @@ def _flight_context() -> SimpleNamespace:
         timer_period=0.01,
         uav_position_is_valid=Mock(return_value=True),
         uav_is_in_air=Mock(return_value=False),
+        is_at_target=Mock(return_value=False),
         current_position_ned=Mock(return_value=[0.0, 0.0, -1.0]),
         stop_position_hold=Mock(),
         get_logger=Mock(return_value=SimpleNamespace(info=Mock(), warn=Mock())),

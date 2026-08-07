@@ -24,6 +24,7 @@ from drone_agent.px4.frame import body_to_ned, is_finite_number, normalize_angle
 DEFAULT_POSITION_TOLERANCE_M = 0.3
 DEFAULT_YAW_TOLERANCE_RAD = math.radians(5.0)
 DEFAULT_TIMER_PERIOD_S = 0.1
+OFFBOARD_HANDSHAKE_TIMEOUT_S = 3.0
 MAV_RESULT_NAMES = {
     0: "ACCEPTED",
     1: "TEMPORARILY_REJECTED",
@@ -77,6 +78,7 @@ class VehicleStatus:
 
     mode: str = ""
     armed: bool = False
+    connected: bool = False
     nav_state: int = 0
     arming_state: int = 1
 
@@ -171,6 +173,9 @@ class Px4Controller(Node):
         self.setpoint_counter = 0
         self.offboard_command_sent = False
         self.arm_command_sent = False
+        self.offboard_confirmed = False
+        self.arming_confirmed = False
+        self.position_hold_start_error = None
         self.timer = self.create_timer(self.timer_period, self.timer_callback)
 
     def _topic(self, suffix: str) -> str:
@@ -211,6 +216,7 @@ class Px4Controller(Node):
         mode = str(msg.mode)
         self.vehicle_status.mode = mode
         self.vehicle_status.armed = bool(msg.armed)
+        self.vehicle_status.connected = bool(getattr(msg, "connected", False))
         self.vehicle_status.nav_state = MODE_TO_NAV_STATE.get(mode, 0)
         self.vehicle_status.arming_state = (
             VehicleStatus.ARMING_STATE_ARMED if msg.armed else VehicleStatus.ARMING_STATE_DISARMED
@@ -354,6 +360,32 @@ class Px4Controller(Node):
             time.sleep(self.timer_period)
         return self.vehicle_status.arming_state == expected_arming_state
 
+    def wait_for_offboard_and_arm(self, timeout_s: float) -> bool:
+        """等待 MAVROS 确认 Offboard 模式和解锁状态。"""
+        deadline = time.monotonic() + max(0.0, timeout_s)
+        while time.monotonic() < deadline:
+            if self.position_hold_start_error:
+                return False
+            connected = bool(getattr(self.vehicle_status, "connected", False))
+            self.offboard_confirmed = self.offboard_confirmed or (
+                connected and self.vehicle_status.mode == "OFFBOARD"
+            )
+            self.arming_confirmed = self.arming_confirmed or (
+                self.offboard_confirmed and bool(self.vehicle_status.armed)
+            )
+            if self.offboard_confirmed and self.arming_confirmed:
+                return True
+            time.sleep(self.timer_period)
+
+        connected = bool(getattr(self.vehicle_status, "connected", False))
+        if not connected:
+            self.position_hold_start_error = "MAVROS_NOT_CONNECTED"
+        elif not self.offboard_confirmed:
+            self.position_hold_start_error = "OFFBOARD_NOT_CONFIRMED"
+        elif not self.arming_confirmed:
+            self.position_hold_start_error = "ARMING_NOT_CONFIRMED"
+        return False
+
     @staticmethod
     def _validate_setpoint(position: list[float], yaw: float | None, yawspeed: float | None) -> None:
         """拒绝任何非有限位置、yaw 或 yaw-rate。"""
@@ -475,8 +507,8 @@ class Px4Controller(Node):
         """把角度归一化到 [-pi, pi]。"""
         return normalize_angle(angle)
 
-    def start_position_hold(self, position: list[float], yaw: float | None = None, yawspeed: float | None = None) -> None:
-        """开始定时发布目标位置保持 setpoint。"""
+    def start_position_hold(self, position: list[float], yaw: float | None = None, yawspeed: float | None = None) -> bool:
+        """开始发布 setpoint，并等待 Offboard 与解锁状态确认。"""
         self._validate_setpoint(position, yaw, yawspeed)
         self.target_position = list(position)
         self.target_yaw = yaw
@@ -484,6 +516,13 @@ class Px4Controller(Node):
         self.setpoint_counter = 0
         self.offboard_command_sent = False
         self.arm_command_sent = False
+        self.offboard_confirmed = self.vehicle_status.mode == "OFFBOARD"
+        self.arming_confirmed = self.offboard_confirmed and bool(self.vehicle_status.armed)
+        self.position_hold_start_error = None
+        if self.wait_for_offboard_and_arm(OFFBOARD_HANDSHAKE_TIMEOUT_S):
+            return True
+        self.stop_position_hold()
+        return False
 
     def stop_position_hold(self) -> None:
         """停止发布位置保持 setpoint。"""
@@ -497,15 +536,32 @@ class Px4Controller(Node):
         return [position.x, position.y, position.z]
 
     def timer_callback(self) -> None:
-        """定时发布 setpoint，并在预发布后请求 Offboard 和解锁。"""
+        """定时发布 setpoint，并按状态确认顺序请求 Offboard 和解锁。"""
         if self.target_position is None:
             return
         self.publish_position_setpoint(self.target_position, self.target_yaw, self.target_yawspeed)
-        if self.setpoint_counter == 10 and not self.offboard_command_sent:
-            self.send_offboard_mode_command()
-            self.offboard_command_sent = True
-        if self.setpoint_counter == 11 and not self.arm_command_sent:
-            self.send_arm_command()
-            self.arm_command_sent = True
-        if self.setpoint_counter < 12:
+        if self.vehicle_status.mode == "OFFBOARD":
+            self.offboard_confirmed = True
+        if self.vehicle_status.armed:
+            self.arming_confirmed = self.offboard_confirmed
+        if self.setpoint_counter < 10:
             self.setpoint_counter += 1
+            return
+        if not getattr(self.vehicle_status, "connected", False):
+            return
+        if not self.offboard_confirmed and not self.offboard_command_sent:
+            try:
+                self.send_offboard_mode_command()
+                self.offboard_command_sent = True
+            except Exception:
+                self.position_hold_start_error = "OFFBOARD_REQUEST_FAILED"
+            return
+        if self.offboard_confirmed and not self.arming_confirmed and not self.arm_command_sent:
+            try:
+                self.send_arm_command()
+                self.arm_command_sent = True
+            except Exception:
+                self.position_hold_start_error = "ARMING_REQUEST_FAILED"
+            return
+        if self.vehicle_status.armed and self.offboard_confirmed:
+            self.arming_confirmed = True
