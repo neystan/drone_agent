@@ -367,13 +367,13 @@ class Px4Controller(Node):
             if self.position_hold_start_error:
                 return False
             connected = bool(getattr(self.vehicle_status, "connected", False))
-            self.offboard_confirmed = self.offboard_confirmed or (
-                connected and self.vehicle_status.mode == "OFFBOARD"
-            )
-            self.arming_confirmed = self.arming_confirmed or (
-                self.offboard_confirmed and bool(self.vehicle_status.armed)
-            )
-            if self.offboard_confirmed and self.arming_confirmed:
+            if connected:
+                self.offboard_confirmed = self.vehicle_status.mode == "OFFBOARD"
+                self.arming_confirmed = self.offboard_confirmed and bool(self.vehicle_status.armed)
+            else:
+                self.offboard_confirmed = False
+                self.arming_confirmed = False
+            if connected and self.offboard_confirmed and self.arming_confirmed:
                 return True
             time.sleep(self.timer_period)
 
@@ -516,8 +516,9 @@ class Px4Controller(Node):
         self.setpoint_counter = 0
         self.offboard_command_sent = False
         self.arm_command_sent = False
-        self.offboard_confirmed = self.vehicle_status.mode == "OFFBOARD"
-        self.arming_confirmed = self.offboard_confirmed and bool(self.vehicle_status.armed)
+        connected = bool(getattr(self.vehicle_status, "connected", False))
+        self.offboard_confirmed = connected and self.vehicle_status.mode == "OFFBOARD"
+        self.arming_confirmed = connected and self.offboard_confirmed and bool(self.vehicle_status.armed)
         self.position_hold_start_error = None
         if self.wait_for_offboard_and_arm(OFFBOARD_HANDSHAKE_TIMEOUT_S):
             return True

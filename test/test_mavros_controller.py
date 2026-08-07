@@ -71,6 +71,7 @@ def _install_ros_stubs() -> None:
 
 _install_ros_stubs()
 
+import drone_agent.px4.controller as controller_module
 from drone_agent.px4.controller import Px4Controller
 
 
@@ -201,3 +202,17 @@ def test_start_position_hold_returns_false_when_handshake_fails() -> None:
 
     assert result is False
     assert stopped == [True]
+
+
+def test_start_position_hold_rejects_disconnected_cached_offboard_state(monkeypatch) -> None:
+    """验证断开连接时不能接受缓存的 Offboard 和解锁状态。"""
+    controller = object.__new__(Px4Controller)
+    controller.vehicle_status = SimpleNamespace(mode="OFFBOARD", armed=True, connected=False)
+    controller.timer_period = 0.001
+    controller.stop_position_hold = lambda: None
+    monkeypatch.setattr(controller_module, "OFFBOARD_HANDSHAKE_TIMEOUT_S", 0.01)
+
+    result = controller.start_position_hold([0.0, 0.0, -1.0])
+
+    assert result is False
+    assert controller.position_hold_start_error == "MAVROS_NOT_CONNECTED"
