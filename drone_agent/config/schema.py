@@ -11,11 +11,15 @@ class RosConfig:
 
     node_name: str
     camera_scene_topic: str | None
+    mavros_namespace: str = "/mavros"
+    mavros_fcu_url: str = ""
 
     def __post_init__(self) -> None:
         """校验 ROS 配置中的必填字段。"""
         if not self.node_name:
             raise ValueError("ros.node_name is required")
+        if not self.mavros_namespace:
+            raise ValueError("ros.mavros_namespace is required")
 
 
 @dataclass(frozen=True)

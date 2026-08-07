@@ -72,8 +72,8 @@
 | `drone_agent/config/schema.py` | 配置数据结构定义，包含 `RuntimeProfile`、`RosConfig`、`StorageConfig`、`ProviderConfig`、`VlmConfig`、`SafetyConfig`。`SafetyConfig` 当前还包含 `pre_takeoff_gate_enabled`、`require_battery_status_for_takeoff`、`min_battery_percent_for_takeoff`、`require_px4_status_ready_for_takeoff`。 |
 | `drone_agent/config/profiles/` | 运行 profile 目录，描述仿真/真机的 ROS、存储和安全差异。 |
 | `drone_agent/config/profiles/__init__.py` | profile 子目录的包标记文件，便于 setuptools 正确分发 YAML 配置。 |
-| `drone_agent/config/profiles/sim.yaml` | 仿真 profile，配置仿真节点名、相机 topic、图片目录、日志目录、安全阈值。 |
-| `drone_agent/config/profiles/real.yaml` | 真机 profile，配置真机节点名、真机存储路径和更严格的安全阈值。 |
+| `drone_agent/config/profiles/sim.yaml` | 仿真 profile，配置 AirSim 相机 topic、MAVROS namespace、图片目录、日志目录和仿真安全阈值。 |
+| `drone_agent/config/profiles/real.yaml` | 真机 profile，配置真机节点名、存储路径和更严格的安全阈值；MAVROS 默认 namespace 为 `/mavros`，真机相机 topic 需按设备实际配置。 |
 
 说明：
 
@@ -142,15 +142,15 @@
 
 ### 4.8 `drone_agent/px4/`
 
-职责：封装 PX4 DDS 交互和底层控制能力。
+职责：封装 MAVROS 交互和底层控制能力，并保持原有 `Px4Controller` 类和目录路径不变。
 
 | 路径 | 作用 |
 | --- | --- |
 | `drone_agent/px4/__init__.py` | PX4 子包标记文件。 |
-| `drone_agent/px4/controller.py` | `Px4Controller(Node)` 实现。负责 publisher/subscriber、状态缓存、心跳、命令发送、setpoint 发布、相机帧接收，并记录 `vehicle_status_received` / `battery_status_received`。 |
+| `drone_agent/px4/controller.py` | `Px4Controller(Node)` 实现。订阅 `/mavros/state`、`/mavros/local_position/pose`、`/mavros/battery` 和 `/mavros/extended_state`，通过 MAVROS service 发送命令，通过 `/mavros/setpoint_raw/local` 持续发布位置 setpoint，并记录状态接收情况。 |
 | `drone_agent/px4/frame.py` | 坐标系和角度工具，例如 body 坐标到 NED 坐标转换。 |
 | `drone_agent/px4/status.py` | PX4 状态字段解析与可读化辅助函数。 |
-| `drone_agent/px4/topics.py` | PX4 DDS topic 常量定义。 |
+| `drone_agent/px4/topics.py` | 兼容旧状态常量和 MAVLink 命令结果名称定义。 |
 
 ### 4.9 `drone_agent/tools/`
 
@@ -178,13 +178,13 @@
 
 ## 5. `launch/` ROS2 launch 目录
 
-这些文件主要是从旧 ROS2 包壳保留下来的辅助启动文件，不是当前 `drone_agent_sim` / `drone_agent_real` 主入口。
+这些文件主要是仿真辅助启动文件，不是当前 `drone_agent_sim` / `drone_agent_real` 主入口。
 
 | 路径 | 作用 |
 | --- | --- |
 | `launch/lesson3.launch.py` | 旧链路的 ROS2 launch 文件。 |
 | `launch/lesson6.launch.py` | 旧链路的 ROS2 launch 文件。 |
-| `launch/takeoff_camera.launch.py` | 旧链路的相机/起飞相关 launch 文件。 |
+| `launch/takeoff_camera.launch.py` | 仅启动 AirSim ROS bridge 和仿真相机预览；MAVROS 必须独立启动，真机不使用此 launch。 |
 
 ## 6. `resource/` ROS2 资源目录
 

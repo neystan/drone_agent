@@ -3,14 +3,19 @@
 <package format="3">
   <name>drone_agent</name>
   <version>0.1.0</version>
-  <description>Natural-language UAV control agent based on ROS2 and PX4 DDS.</description>
+  <description>Natural-language UAV control agent based on ROS2, MAVROS, and PX4.</description>
   <maintainer email="toplaya@126.com">hw</maintainer>
   <license>Proprietary</license>
 
   <exec_depend>rclpy</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>mavros</exec_depend>
+  <exec_depend>mavros_msgs</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>cv_bridge</exec_depend>
-  <exec_depend>px4_msgs</exec_depend>
   <exec_depend>python3-yaml</exec_depend>
 
   <test_depend>python3-pytest</test_depend>

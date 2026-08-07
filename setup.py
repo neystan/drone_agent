@@ -7,6 +7,7 @@ from setuptools import find_packages, setup
 
 
 package_name = "drone_agent"
+launch_files = [path for path in glob("launch/*") if os.path.isfile(path)]
 
 
 setup(
@@ -20,7 +21,7 @@ setup(
             [f"resource/{package_name}"],
         ),
         (f"share/{package_name}", ["package.xml"]),
-        (os.path.join("share", package_name, "launch"), glob("launch/*")),
+        (os.path.join("share", package_name, "launch"), launch_files),
         (
             "bin",
             [
@@ -44,7 +45,7 @@ setup(
     zip_safe=True,
     maintainer="hw",
     maintainer_email="toplaya@126.com",
-    description="Natural-language UAV control agent based on ROS2 and PX4 DDS.",
+    description="Natural-language UAV control agent based on ROS2, MAVROS, and PX4.",
     license="Proprietary",
     entry_points={
         "console_scripts": [

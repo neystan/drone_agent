@@ -47,13 +47,21 @@ def start_runtime(profile_name: str) -> None:
     _start_live_runtime(profile)
 
 
+def controller_class_for_profile(mode: str) -> type[Any]:
+    """返回当前 profile 使用的原名 PX4 控制器类。"""
+    if mode not in {"simulation", "real"}:
+        raise ValueError(f"unsupported runtime mode: {mode}")
+    from drone_agent.px4.controller import Px4Controller
+
+    return Px4Controller
+
+
 def _start_live_runtime(profile) -> None:
     """创建 ROS2、PX4 controller 和 agent loop 的完整运行时。"""
     import rclpy
     from rclpy.executors import SingleThreadedExecutor
 
     from drone_agent.runtime.agent_loop import agent_loop
-    from drone_agent.px4.controller import Px4Controller
 
     rclpy.init()
     executor = SingleThreadedExecutor()
@@ -67,9 +75,11 @@ def _start_live_runtime(profile) -> None:
         message_bus = MessageBus()
         input_server = InputServer(message_bus)
         input_server.start()
-        controller = Px4Controller(
+        controller_class = controller_class_for_profile(profile.mode)
+        controller = controller_class(
             node_name=profile.ros.node_name,
             camera_scene_topic=profile.ros.camera_scene_topic,
+            mavros_namespace=profile.ros.mavros_namespace,
         )
         executor.add_node(controller)
         executor_thread = threading.Thread(target=executor.spin, daemon=True)

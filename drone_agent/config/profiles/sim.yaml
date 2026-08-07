@@ -4,6 +4,8 @@ mode: simulation
 ros:
   node_name: drone_agent_sim
   camera_scene_topic: /airsim_node/PX4/CameraDepth1/Scene
+  mavros_namespace: /mavros
+  mavros_fcu_url: udp://:14540@127.0.0.1:14580
 
 storage:
   photo_save_dir: /home/hw/picture

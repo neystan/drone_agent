@@ -31,13 +31,37 @@ def _install_ros_import_stubs() -> None:
         rclpy_qos.ReliabilityPolicy = type(
             "ReliabilityPolicy", (), {"BEST_EFFORT": "best_effort"}
         )
+        rclpy_qos.qos_profile_sensor_data = object()
         sys.modules["rclpy.qos"] = rclpy_qos
     if "sensor_msgs.msg" not in sys.modules:
         sensor_msgs = types.ModuleType("sensor_msgs")
         sensor_msgs_msg = types.ModuleType("sensor_msgs.msg")
+        sensor_msgs_msg.BatteryState = type("BatteryState", (), {})
         sensor_msgs_msg.Image = type("Image", (), {})
         sys.modules["sensor_msgs"] = sensor_msgs
         sys.modules["sensor_msgs.msg"] = sensor_msgs_msg
+
+    if "geometry_msgs.msg" not in sys.modules:
+        geometry_msgs = types.ModuleType("geometry_msgs")
+        geometry_msgs_msg = types.ModuleType("geometry_msgs.msg")
+        geometry_msgs_msg.PoseStamped = type("PoseStamped", (), {})
+        sys.modules["geometry_msgs"] = geometry_msgs
+        sys.modules["geometry_msgs.msg"] = geometry_msgs_msg
+
+    if "mavros_msgs.msg" not in sys.modules:
+        mavros_msgs = types.ModuleType("mavros_msgs")
+        mavros_msgs_msg = types.ModuleType("mavros_msgs.msg")
+        mavros_msgs_msg.ExtendedState = type("ExtendedState", (), {})
+        mavros_msgs_msg.PositionTarget = type("PositionTarget", (), {})
+        mavros_msgs_msg.State = type("State", (), {})
+        sys.modules["mavros_msgs"] = mavros_msgs
+        sys.modules["mavros_msgs.msg"] = mavros_msgs_msg
+
+    if "mavros_msgs.srv" not in sys.modules:
+        mavros_msgs_srv = types.ModuleType("mavros_msgs.srv")
+        mavros_msgs_srv.CommandBool = type("CommandBool", (), {})
+        mavros_msgs_srv.CommandLong = type("CommandLong", (), {})
+        sys.modules["mavros_msgs.srv"] = mavros_msgs_srv
     if "px4_msgs.msg" not in sys.modules:
         px4_msgs = types.ModuleType("px4_msgs")
         px4_msgs_msg = types.ModuleType("px4_msgs.msg")
@@ -65,6 +89,7 @@ from drone_agent.tools import flight
 
 class FiniteInputTest(unittest.TestCase):
     def test_json_parser_rejects_non_finite_numbers(self) -> None:
+        """验证 JSON 层拒绝 NaN、Infinity 和溢出无限值。"""
         for raw_arguments in (
             '{"height": NaN}',
             '{"height": Infinity}',
@@ -76,6 +101,7 @@ class FiniteInputTest(unittest.TestCase):
                     _parse_tool_arguments(raw_arguments)
 
     def test_flight_tools_reject_non_finite_values_before_starting_hold(self) -> None:
+        """验证飞行动作在调用 position hold 前拒绝异常数值。"""
         context = _flight_context()
         context.controller.start_position_hold = Mock()
 
@@ -91,6 +117,7 @@ class FiniteInputTest(unittest.TestCase):
 
 class SetpointFiniteInputTest(unittest.TestCase):
     def test_start_position_hold_rejects_non_finite_position(self) -> None:
+        """验证 position hold 拒绝包含非有限数的位置向量。"""
         controller = object.__new__(Px4Controller)
         controller.target_position = None
 
@@ -98,6 +125,7 @@ class SetpointFiniteInputTest(unittest.TestCase):
             controller.start_position_hold([0.0, math.nan, 0.0])
 
     def test_publish_position_setpoint_rejects_non_finite_explicit_yaw(self) -> None:
+        """验证 setpoint 发布拒绝显式非有限 yaw。"""
         controller = object.__new__(Px4Controller)
         controller.trajectory_setpoint_publisher = SimpleNamespace(publish=Mock())
 
@@ -107,6 +135,7 @@ class SetpointFiniteInputTest(unittest.TestCase):
 
 class CommandAckTest(unittest.TestCase):
     def test_ack_request_only_accepts_post_request_ack_for_same_command(self) -> None:
+        """验证 ACK 必须来自请求发送后且命令号匹配的消息。"""
         controller = object.__new__(Px4Controller)
         controller.vehicle_command_ack = None
         controller.vehicle_command_ack_sequence = 4
@@ -122,6 +151,7 @@ class CommandAckTest(unittest.TestCase):
         self.assertEqual(controller.get_command_ack(request).result, 0)
 
     def test_hover_reports_state_unconfirmed_when_ack_is_accepted_but_mode_does_not_change(self) -> None:
+        """验证 ACK 接受但模式未切换时返回状态未确认。"""
         context = _flight_context()
         context.controller.uav_is_in_air = Mock(return_value=True)
         request = CommandRequest(command=176, ack_sequence_before=3)
@@ -136,6 +166,7 @@ class CommandAckTest(unittest.TestCase):
         context.controller.stop_position_hold.assert_not_called()
 
     def test_hover_reports_command_rejected(self) -> None:
+        """验证 PX4 拒绝悬停命令时返回命令拒绝。"""
         context = _flight_context()
         context.controller.uav_is_in_air = Mock(return_value=True)
         request = CommandRequest(command=176, ack_sequence_before=3)
@@ -151,6 +182,7 @@ class CommandAckTest(unittest.TestCase):
         context.controller.stop_position_hold.assert_not_called()
 
     def test_hover_accepts_confirmed_state_when_ack_is_missing(self) -> None:
+        """验证 ACK 丢失但 AUTO_LOITER 已确认时仍报告成功。"""
         context = _flight_context()
         context.controller.uav_is_in_air = Mock(return_value=True)
         request = CommandRequest(command=176, ack_sequence_before=3)
@@ -168,6 +200,7 @@ class CommandAckTest(unittest.TestCase):
 
 class TimeoutHandoffTest(unittest.TestCase):
     def test_timeout_keeps_agent_running_when_hover_is_confirmed(self) -> None:
+        """验证动作超时且悬停确认后只返回超时并继续运行。"""
         context = _flight_context()
         controller = context.controller
         controller.uav_is_in_air = Mock(return_value=True)
@@ -193,6 +226,7 @@ class TimeoutHandoffTest(unittest.TestCase):
         controller.stop_position_hold.assert_called_once()
 
     def test_timeout_without_hover_confirmation_raises_safety_handoff(self) -> None:
+        """验证悬停未确认时停止 hold 并触发安全交接异常。"""
         context = _flight_context()
         controller = context.controller
         controller.uav_is_in_air = Mock(return_value=True)
@@ -219,6 +253,7 @@ class TimeoutHandoffTest(unittest.TestCase):
 
 
 def _flight_context() -> SimpleNamespace:
+    """创建飞行动作单元测试使用的最小上下文。"""
     position = SimpleNamespace(x=0.0, y=0.0, z=-1.0, heading=0.0)
     controller = SimpleNamespace(
         vehicle_local_position=position,

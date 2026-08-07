@@ -8,6 +8,7 @@ from ament_index_python.packages import get_package_share_directory
 
 
 def generate_launch_description():
+    """启动 AirSim 相机桥接和相机预览节点。"""
     airsim_node_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(
@@ -25,7 +26,4 @@ def generate_launch_description():
         output="screen",
     )
 
-    return LaunchDescription([
-        airsim_node_launch,
-        preview_node,
-    ])
+    return LaunchDescription([airsim_node_launch, preview_node])
