@@ -106,6 +106,24 @@ class DetectorConfig:
 
 
 @dataclass(frozen=True)
+class TrackerConfig:
+    """SAM2 目标跟踪服务配置。"""
+
+    enabled: bool
+    base_url: str | None
+    timeout_s: float
+
+    def __post_init__(self) -> None:
+        """在启用追踪服务时校验 Docker 服务地址。"""
+        if not self.enabled:
+            return
+        if not self.base_url:
+            raise ValueError("tracker.base_url is required when tracker.enabled=true")
+        if self.timeout_s <= 0:
+            raise ValueError("tracker.timeout_s must be positive")
+
+
+@dataclass(frozen=True)
 class SafetyConfig:
     """飞行安全限制配置。"""
 
@@ -148,6 +166,7 @@ class RuntimeProfile:
     llm: ProviderConfig
     vlm: VlmConfig
     detector: DetectorConfig
+    tracker: TrackerConfig
     safety: SafetyConfig
 
     def __post_init__(self) -> None:

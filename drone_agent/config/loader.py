@@ -16,6 +16,7 @@ from drone_agent.config.schema import (
     RuntimeProfile,
     SafetyConfig,
     StorageConfig,
+    TrackerConfig,
     VlmConfig,
 )
 
@@ -99,6 +100,7 @@ def _build_profile(raw: dict[str, Any], settings: dict[str, Any]) -> RuntimeProf
     llm_settings = settings.get("llm", {})
     vlm_settings = settings.get("vlm", {})
     detector_settings = settings.get("detector", {})
+    tracker_settings = settings.get("tracker", {})
 
     if not isinstance(llm_settings, dict):
         raise ValueError("settings.llm must be a mapping")
@@ -106,6 +108,8 @@ def _build_profile(raw: dict[str, Any], settings: dict[str, Any]) -> RuntimeProf
         raise ValueError("settings.vlm must be a mapping")
     if not isinstance(detector_settings, dict):
         raise ValueError("settings.detector must be a mapping")
+    if not isinstance(tracker_settings, dict):
+        raise ValueError("settings.tracker must be a mapping")
 
     llm_api_key = str(llm_settings.get("api_key", "")).strip()
     llm_base_url = str(llm_settings.get("base_url", "")).strip()
@@ -134,6 +138,13 @@ def _build_profile(raw: dict[str, Any], settings: dict[str, Any]) -> RuntimeProf
         if detector_enabled
         else None
     )
+    tracker_enabled = bool(tracker_settings.get("enabled", False))
+    tracker_base_url = (
+        str(tracker_settings.get("base_url", "")).strip()
+        if tracker_enabled
+        else None
+    )
+    tracker_timeout_s = float(tracker_settings.get("timeout_s", 5.0))
 
     return RuntimeProfile(
         name=str(raw["name"]),
@@ -166,6 +177,11 @@ def _build_profile(raw: dict[str, Any], settings: dict[str, Any]) -> RuntimeProf
             api_key=detector_api_key,
             model=detector_model,
             api_path=detector_api_path,
+        ),
+        tracker=TrackerConfig(
+            enabled=tracker_enabled,
+            base_url=tracker_base_url,
+            timeout_s=tracker_timeout_s,
         ),
         safety=SafetyConfig(
             human_in_the_loop_for_flight_tools=bool(

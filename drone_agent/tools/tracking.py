@@ -10,6 +10,7 @@ from drone_agent.bus.intervention import interrupt_if_requested
 from drone_agent.vision import mouse_selection, tracking
 from drone_agent.vision.dinoxseek import detect_image_targets
 from drone_agent.vision.image_store import save_analysis_frame
+from drone_agent.vision.sam2_client import Sam2ClientError
 
 
 MOUSE_SELECTION_TIMEOUT_S = 60.0
@@ -33,7 +34,16 @@ def sam_tracking(context: Any, arguments: dict[str, Any]) -> dict:
         }
 
     if action == "stop":
-        return tracking.stop_tracking(context.profile)
+        try:
+            return tracking.stop_tracking(context.profile)
+        except Sam2ClientError as exc:
+            return {
+                "success": False,
+                "error": "SAM2_SERVICE_UNAVAILABLE",
+                "action": "stop",
+                "retryable": True,
+                "message": f"SAM2 service is unavailable: {exc}",
+            }
 
     frame = getattr(context.controller, "latest_rgb_frame", None)
     if frame is None:
