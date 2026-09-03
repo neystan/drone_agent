@@ -128,6 +128,7 @@ class SafetyConfig:
     """飞行安全限制配置。"""
 
     human_in_the_loop_for_flight_tools: bool
+    human_in_the_loop_exempt_flight_tools: frozenset[str]
     max_takeoff_height_m: float
     max_relative_move_m: float
     max_vertical_move_m: float

@@ -145,6 +145,12 @@ def _build_profile(raw: dict[str, Any], settings: dict[str, Any]) -> RuntimeProf
         else None
     )
     tracker_timeout_s = float(tracker_settings.get("timeout_s", 5.0))
+    hitl_exempt_flight_tools = safety.get("human_in_the_loop_exempt_flight_tools", [])
+    if not isinstance(hitl_exempt_flight_tools, list) or any(
+        not isinstance(tool_name, str) or not tool_name.strip()
+        for tool_name in hitl_exempt_flight_tools
+    ):
+        raise ValueError("safety.human_in_the_loop_exempt_flight_tools must be a list of non-empty strings")
 
     return RuntimeProfile(
         name=str(raw["name"]),
@@ -186,6 +192,9 @@ def _build_profile(raw: dict[str, Any], settings: dict[str, Any]) -> RuntimeProf
         safety=SafetyConfig(
             human_in_the_loop_for_flight_tools=bool(
                 safety["human_in_the_loop_for_flight_tools"]
+            ),
+            human_in_the_loop_exempt_flight_tools=frozenset(
+                tool_name.strip() for tool_name in hitl_exempt_flight_tools
             ),
             max_takeoff_height_m=float(safety["max_takeoff_height_m"]),
             max_relative_move_m=float(safety["max_relative_move_m"]),

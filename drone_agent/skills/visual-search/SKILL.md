@@ -15,8 +15,8 @@ mode: ["sim", "real"]
 
 1. 先调用 `analyze_view` 判断当前画面是否能看到目标。
 2. 如果没有看到目标，先通过 `rotate` 观察周围一圈的情况。
-3. 当前前视相机的水平视野约为 90 度。
-4. 未找到目标时，粗搜索优先使用 60 度的大步旋转。
+3. 当前前视相机的水平视野约为 94 度。
+4. 未找到目标时，粗搜索优先使用 90 度的大步旋转。
 5. 粗搜索时尽量持续向左旋转，避免来回切换方向。
 6. 如果已经看到目标但目标没有居中，使用 30 度以内的小角度 `rotate` 微调方向。
 7. 非必要情况下不使用 `move`；如果必须移动，只允许使用 1 米的小步 `move`。
@@ -66,7 +66,7 @@ analyze_view -> rotate -> analyze_view -> rotate -> analyze_view
 
 ```text
 analyze_view(target_description="红色椅子")
-rotate(direction="left", degrees=60)
+rotate(direction="left", degrees=90)
 analyze_view(target_description="红色椅子")
 rotate(direction="left", degrees=20)
 analyze_view(target_description="红色椅子")

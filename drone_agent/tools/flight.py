@@ -13,9 +13,36 @@ from drone_agent.runtime.safety import request_confirmed_hover
 
 WAIT_FOR_POSITION_TIMEOUT_S = 3.0
 LAND_TIMEOUT_S = 45.0
-MIN_IN_AIR_ALTITUDE_M = -0.3
-MAX_ALTITUDE_NED_M = -10.0
 COMMAND_ACK_TIMEOUT_S = 2.0
+
+
+def _flight_state(controller: Any) -> str | None:
+    """读取控制器确认的空地状态。"""
+    resolver = getattr(controller, "flight_state", None)
+    return resolver() if resolver is not None else None
+
+
+def _flight_state_unavailable() -> dict:
+    """返回 landed state 未就绪时的统一错误。"""
+    return {
+        "success": False,
+        "error": "FLIGHT_STATE_UNKNOWN",
+        "message": "MAVROS landed state is unavailable or unknown",
+    }
+
+
+def _require_in_air(controller: Any, message: str) -> dict | None:
+    """要求 MAVROS 明确确认飞行器处于空中。"""
+    state = _flight_state(controller)
+    if state is None:
+        return _flight_state_unavailable()
+    if state != "IN_AIR":
+        return {
+            "success": False,
+            "error": "ALREADY_ON_GROUND",
+            "message": message,
+        }
+    return None
 
 
 def _nav_state_constant(controller: Any, name: str, fallback: int) -> int:
@@ -102,17 +129,20 @@ def _handle_position_hold_start_failure(
 ) -> dict[str, Any]:
     """处理 Offboard/解锁握手失败，并在空中确认悬停或移交安全控制。"""
     error = str(getattr(controller, "position_hold_start_error", None) or "OFFBOARD_NOT_CONFIRMED")
+    detail = getattr(controller, "position_hold_start_detail", None)
     if airborne:
         safety_result = request_confirmed_hover(controller, action_name=action_name)
         return {
             "success": False,
             "error": error,
             **safety_result,
+            **({"px4_result": detail} if detail else {}),
             "message": f"{action_name} could not confirm Offboard/arming; PX4 AUTO_LOITER confirmed",
         }
     return {
         "success": False,
         "error": error,
+        **({"px4_result": detail} if detail else {}),
         "message": f"{action_name} could not confirm Offboard/arming",
     }
 
@@ -213,7 +243,10 @@ def takeoff(context: Any, height: float) -> dict:
             "message": "local position is not valid",
         }
 
-    if controller.uav_is_in_air():
+    state = _flight_state(controller)
+    if state is None:
+        return _flight_state_unavailable()
+    if state == "IN_AIR":
         return {
             "success": False,
             "error": "ALREADY_IN_AIR",
@@ -270,7 +303,10 @@ def land(context: Any) -> dict:
             "message": "local position is not valid",
         }
 
-    if not controller.uav_is_in_air():
+    state = _flight_state(controller)
+    if state is None:
+        return _flight_state_unavailable()
+    if state == "ON_GROUND":
         return {
             "success": False,
             "error": "ALREADY_ON_GROUND",
@@ -293,7 +329,7 @@ def land(context: Any) -> dict:
         interrupted = interrupt_if_requested(context, hover_on_flight_tool=True)
         if interrupted is not None:
             return interrupted
-        if not controller.uav_is_in_air():
+        if _flight_state(controller) == "ON_GROUND":
             return {
                 "success": True,
                 "message": "landing complete, uav is on the ground",
@@ -399,12 +435,9 @@ def hover(controller: Any) -> dict:
             "message": "local position is not valid",
         }
 
-    if not controller.uav_is_in_air():
-        return {
-            "success": False,
-            "error": "ALREADY_ON_GROUND",
-            "message": "uav is on the ground and cannot enter hover mode",
-        }
+    state_error = _require_in_air(controller, "uav is on the ground and cannot enter hover mode")
+    if state_error is not None:
+        return state_error
 
     return _confirm_nav_command(
         controller,
@@ -425,12 +458,9 @@ def return_home(controller: Any) -> dict:
             "message": "local position is not valid",
         }
 
-    if not controller.uav_is_in_air():
-        return {
-            "success": False,
-            "error": "ALREADY_ON_GROUND",
-            "message": "uav is on the ground and cannot return home",
-        }
+    state_error = _require_in_air(controller, "uav is on the ground and cannot return home")
+    if state_error is not None:
+        return state_error
 
     return _confirm_nav_command(
         controller,
@@ -482,12 +512,9 @@ def rotate(context: Any, direction: str, degrees: float) -> dict:
             "message": "local position is not valid",
         }
 
-    if not controller.uav_is_in_air():
-        return {
-            "success": False,
-            "error": "ALREADY_ON_GROUND",
-            "message": "uav must take off before rotating",
-        }
+    state_error = _require_in_air(controller, "uav must take off before rotating")
+    if state_error is not None:
+        return state_error
 
     current_heading = getattr(controller.vehicle_local_position, "heading", float("nan"))
     if not math.isfinite(current_heading):
@@ -627,12 +654,9 @@ def move(context: Any, x: float, y: float, z: float) -> dict:
             "message": "local position is not valid",
         }
 
-    if not controller.uav_is_in_air():
-        return {
-            "success": False,
-            "error": "ALREADY_ON_GROUND",
-            "message": "uav must take off before moving to a target position",
-        }
+    state_error = _require_in_air(controller, "uav must take off before moving to a target position")
+    if state_error is not None:
+        return state_error
 
     heading = getattr(controller.vehicle_local_position, "heading", float("nan"))
     if not math.isfinite(heading):
@@ -650,11 +674,21 @@ def move(context: Any, x: float, y: float, z: float) -> dict:
         current_position.z + dz_ned,
     ]
 
-    if target_position[2] < MAX_ALTITUDE_NED_M or target_position[2] > MIN_IN_AIR_ALTITUDE_M:
+    target_height = controller.height_above_ground_m(target_position[2])
+    if target_height is None:
         return {
             "success": False,
-            "error": "TARGET_Z_OUT_OF_RANGE",
-            "message": "target altitude is outside allowed local NED range",
+            "error": "GROUND_REFERENCE_UNAVAILABLE",
+            "message": "ground altitude reference is unavailable",
+            "target_position_ned": target_position,
+        }
+
+    if target_height < 0.3:
+        return {
+            "success": False,
+            "error": "TARGET_Z_TOO_LOW",
+            "message": "target altitude is too close to the ground",
+            "target_height_m": target_height,
             "target_position_ned": target_position,
         }
 

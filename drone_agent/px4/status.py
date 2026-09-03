@@ -21,10 +21,12 @@ def flight_mode_status_dict(controller: Any, vehicle_status_enum: type[Any]) -> 
     heading = getattr(controller.vehicle_local_position, "heading", float("nan"))
     nav_state = controller.vehicle_status.nav_state
     arming_state = controller.vehicle_status.arming_state
+    flight_state = controller.flight_state()
     return {
         "success": True,
         "nav_state_name": enum_name_from_prefix(vehicle_status_enum, "NAVIGATION_STATE_", nav_state),
         "arming_state_name": enum_name_from_prefix(vehicle_status_enum, "ARMING_STATE_", arming_state),
+        "flight_state": flight_state or "UNKNOWN",
         "in_air": controller.uav_is_in_air(),
         "position_valid": controller.uav_position_is_valid(),
         "heading_valid": math.isfinite(heading),

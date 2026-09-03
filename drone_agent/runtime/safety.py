@@ -114,7 +114,10 @@ def requires_human_in_the_loop(profile: RuntimeProfile, tool_name: str) -> bool:
     """判断当前工具和模式是否需要人工确认后才能执行。"""
     if not profile.safety.human_in_the_loop_for_flight_tools:
         return False
-    return tool_name in FLIGHT_TOOL_NAMES
+    return (
+        tool_name in FLIGHT_TOOL_NAMES
+        and tool_name not in profile.safety.human_in_the_loop_exempt_flight_tools
+    )
 
 
 def should_end_turn_after_tool_result(result: dict[str, Any]) -> bool:

@@ -1,7 +1,7 @@
 ---
 name: lamp-inspection
 description: 当用户要求巡检路灯、检查一排路灯、给每个路灯拍照、判断路灯是否损坏、分析路灯异常或生成路灯巡检结果时使用。
-enabled: true
+enabled: false
 mode: ["sim", "real"]
 ---
 

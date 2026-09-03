@@ -11,8 +11,8 @@ from typing import Any
 
 from cv_bridge import CvBridge
 from geometry_msgs.msg import PoseStamped
-from mavros_msgs.msg import ExtendedState, PositionTarget, State
-from mavros_msgs.srv import CommandBool, CommandLong
+from mavros_msgs.msg import ExtendedState, PositionTarget, State, StatusText
+from mavros_msgs.srv import CommandBool, CommandLong, SetMode
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import BatteryState as MavrosBatteryState
@@ -24,7 +24,8 @@ from drone_agent.px4.frame import body_to_ned, is_finite_number, normalize_angle
 DEFAULT_POSITION_TOLERANCE_M = 0.3
 DEFAULT_YAW_TOLERANCE_RAD = math.radians(5.0)
 DEFAULT_TIMER_PERIOD_S = 0.1
-OFFBOARD_HANDSHAKE_TIMEOUT_S = 3.0
+OFFBOARD_HANDSHAKE_TIMEOUT_S = 8.0
+SETPOINT_WARMUP_TIMEOUT_S = 3.0
 MAV_RESULT_NAMES = {
     0: "ACCEPTED",
     1: "TEMPORARILY_REJECTED",
@@ -35,6 +36,7 @@ MAV_RESULT_NAMES = {
     6: "CANCELLED",
 }
 MODE_TO_NAV_STATE = {
+    "POSCTL": 2,
     "AUTO.LOITER": 4,
     "AUTO.RTL": 5,
     "AUTO.LAND": 6,
@@ -86,6 +88,7 @@ class VehicleStatus:
     NAVIGATION_STATE_AUTO_RTL = 5
     NAVIGATION_STATE_AUTO_LAND = 6
     NAVIGATION_STATE_OFFBOARD = 14
+    NAVIGATION_STATE_POSCTL = 2
     ARMING_STATE_DISARMED = 1
     ARMING_STATE_ARMED = 2
 
@@ -124,12 +127,15 @@ class Px4Controller(Node):
         self.vehicle_status_received = False
         self.battery_status_received = False
         self.pose_received = False
+        self.extended_state_received = False
+        self.ground_z_ned: float | None = None
         self.vehicle_command_ack = None
         self.vehicle_command_ack_sequence = 0
         self.vehicle_command_ack_history: deque[tuple[int, Any]] = deque(maxlen=64)
         self._vehicle_command_ack_lock = threading.Lock()
         self.bridge = CvBridge()
         self.latest_rgb_frame = None
+        self.latest_statustext = None
 
         self.setpoint_publisher = self.create_publisher(
             PositionTarget,
@@ -138,6 +144,7 @@ class Px4Controller(Node):
         )
         self.trajectory_setpoint_publisher = self.setpoint_publisher
         self.arming_client = self.create_client(CommandBool, self._topic("/cmd/arming"))
+        self.mode_client = self.create_client(SetMode, self._topic("/set_mode"))
         self.command_client = self.create_client(CommandLong, self._topic("/cmd/command"))
 
         self.create_subscription(State, self._topic("/state"), self.state_callback, 10)
@@ -159,6 +166,12 @@ class Px4Controller(Node):
             self.extended_state_callback,
             10,
         )
+        self.create_subscription(
+            StatusText,
+            self._topic("/statustext/recv"),
+            self.statustext_callback,
+            10,
+        )
         if camera_scene_topic:
             self.create_subscription(
                 Image,
@@ -173,9 +186,14 @@ class Px4Controller(Node):
         self.setpoint_counter = 0
         self.offboard_command_sent = False
         self.arm_command_sent = False
+        self.last_offboard_request_time = 0.0
+        self.last_arm_request_time = 0.0
         self.offboard_confirmed = False
         self.arming_confirmed = False
         self.position_hold_start_error = None
+        self.position_hold_start_detail = None
+        self.pending_arm_request = None
+        self.pending_offboard_request = None
         self.timer = self.create_timer(self.timer_period, self.timer_callback)
 
     def _topic(self, suffix: str) -> str:
@@ -222,6 +240,7 @@ class Px4Controller(Node):
             VehicleStatus.ARMING_STATE_ARMED if msg.armed else VehicleStatus.ARMING_STATE_DISARMED
         )
         self.vehicle_status_received = True
+        self._capture_ground_z_if_ready()
 
     def pose_callback(self, msg: PoseStamped) -> None:
         """把 MAVROS ENU 位姿转换并缓存为内部 NED 位姿。"""
@@ -240,6 +259,7 @@ class Px4Controller(Node):
             z_valid=True,
         )
         self.pose_received = True
+        self._capture_ground_z_if_ready()
 
     def battery_status_callback(self, msg: MavrosBatteryState) -> None:
         """把 MAVROS 电池消息转换为现有工具使用的电池结构。"""
@@ -257,6 +277,50 @@ class Px4Controller(Node):
     def extended_state_callback(self, msg: ExtendedState) -> None:
         """缓存 MAVROS 起飞、在空中和降落状态。"""
         self.extended_state = msg
+        self.extended_state_received = True
+        self._capture_ground_z_if_ready()
+
+    def statustext_callback(self, msg: StatusText) -> None:
+        """缓存 PX4 最近一条状态文本，便于解释解锁/模式拒绝。"""
+        self.latest_statustext = str(getattr(msg, "text", "")).strip() or None
+
+    def flight_state(self) -> str | None:
+        """根据 MAVROS landed state 返回 ON_GROUND、IN_AIR 或未知。"""
+        if not getattr(self, "extended_state_received", False):
+            return None
+        landed_state = int(getattr(self.extended_state, "landed_state", 0))
+        if landed_state == int(getattr(ExtendedState, "LANDED_STATE_ON_GROUND", 1)):
+            return "ON_GROUND"
+        if landed_state in {
+            int(getattr(ExtendedState, "LANDED_STATE_IN_AIR", 2)),
+            int(getattr(ExtendedState, "LANDED_STATE_TAKEOFF", 3)),
+            int(getattr(ExtendedState, "LANDED_STATE_LANDING", 4)),
+        }:
+            return "IN_AIR"
+        return None
+
+    def _capture_ground_z_if_ready(self) -> None:
+        """在明确落地且未解锁时更新地面 NED 高度。"""
+        if (
+            self.flight_state() == "ON_GROUND"
+            and not bool(getattr(getattr(self, "vehicle_status", None), "armed", False))
+            and bool(getattr(self, "pose_received", False))
+            and math.isfinite(getattr(getattr(self, "vehicle_local_position", None), "z", float("nan")))
+        ):
+            self.ground_z_ned = self.vehicle_local_position.z
+
+    def height_above_ground_m(self, z_ned: float | None = None) -> float | None:
+        """返回当前或指定 NED 位置相对已记录地面的高度。"""
+        ground_z_ned = self.ground_z_ned
+        if ground_z_ned is None or not math.isfinite(ground_z_ned):
+            return None
+        try:
+            target_z = self.vehicle_local_position.z if z_ned is None else float(z_ned)
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(target_z):
+            return None
+        return ground_z_ned - target_z
 
     def rgb_image_callback(self, msg: Image) -> None:
         """把 RGB 图像消息转换为 OpenCV 帧并缓存。"""
@@ -288,7 +352,8 @@ class Px4Controller(Node):
         """把 MAVROS service 响应归一化为统一 ACK 结构。"""
         if response is None:
             return CommandAck(success=False, result=4)
-        accepted = bool(getattr(response, "success", False))
+        # CommandBool/CommandLong 使用 success；SetMode 使用 mode_sent。
+        accepted = bool(getattr(response, "success", getattr(response, "mode_sent", False)))
         result = int(getattr(response, "result", 0 if accepted else 2))
         return CommandAck(success=accepted, result=result)
 
@@ -361,30 +426,55 @@ class Px4Controller(Node):
         return self.vehicle_status.arming_state == expected_arming_state
 
     def wait_for_offboard_and_arm(self, timeout_s: float) -> bool:
-        """等待 MAVROS 确认 Offboard 模式和解锁状态。"""
-        deadline = time.monotonic() + max(0.0, timeout_s)
-        while time.monotonic() < deadline:
-            if self.position_hold_start_error:
-                return False
-            connected = bool(getattr(self.vehicle_status, "connected", False))
-            if connected:
-                self.offboard_confirmed = self.vehicle_status.mode == "OFFBOARD"
-                self.arming_confirmed = self.offboard_confirmed and bool(self.vehicle_status.armed)
-            else:
-                self.offboard_confirmed = False
-                self.arming_confirmed = False
-            if connected and self.offboard_confirmed and self.arming_confirmed:
-                return True
+        """按真机控制器顺序串行执行 ARM，再切换 Offboard。"""
+        if not bool(getattr(self.vehicle_status, "connected", False)):
+            self.position_hold_start_error = "MAVROS_NOT_CONNECTED"
+            return False
+
+        warmup_deadline = time.monotonic() + SETPOINT_WARMUP_TIMEOUT_S
+        while self.setpoint_counter < 10 and time.monotonic() < warmup_deadline:
             time.sleep(self.timer_period)
 
-        connected = bool(getattr(self.vehicle_status, "connected", False))
-        if not connected:
-            self.position_hold_start_error = "MAVROS_NOT_CONNECTED"
-        elif not self.offboard_confirmed:
-            self.position_hold_start_error = "OFFBOARD_NOT_CONFIRMED"
-        elif not self.arming_confirmed:
-            self.position_hold_start_error = "ARMING_NOT_CONFIRMED"
-        return False
+        if not self.arming_confirmed:
+            request = self.send_arm_command()
+            if request.future is None:
+                self.position_hold_start_error = "ARMING_SERVICE_UNAVAILABLE"
+                return False
+            ack = self.wait_for_command_ack(request, timeout_s=timeout_s)
+            if ack is not None and not self.is_command_ack_accepted(ack):
+                self.position_hold_start_error = "ARMING_NOT_CONFIRMED"
+                self.position_hold_start_detail = self.command_ack_result_name(ack)
+                return False
+            if not self.wait_for_arming_state(
+                int(getattr(VehicleStatus, "ARMING_STATE_ARMED", 2)),
+                timeout_s=timeout_s,
+            ):
+                self.position_hold_start_error = "ARMING_NOT_CONFIRMED"
+                self.position_hold_start_detail = getattr(self, "latest_statustext", None)
+                return False
+            self.arming_confirmed = True
+
+        if self.vehicle_status.mode != "OFFBOARD":
+            request = self.send_offboard_mode_command()
+            if request.future is None:
+                self.position_hold_start_error = "OFFBOARD_SERVICE_UNAVAILABLE"
+                return False
+            ack = self.wait_for_command_ack(request, timeout_s=timeout_s)
+            if ack is not None and not self.is_command_ack_accepted(ack):
+                self.position_hold_start_error = "OFFBOARD_NOT_CONFIRMED"
+                self.position_hold_start_detail = self.command_ack_result_name(ack)
+                return False
+            if not self.wait_for_nav_state(
+                int(getattr(VehicleStatus, "NAVIGATION_STATE_OFFBOARD", 14)),
+                timeout_s=timeout_s,
+            ):
+                self.position_hold_start_error = "OFFBOARD_NOT_CONFIRMED"
+                self.position_hold_start_detail = getattr(self, "latest_statustext", None)
+                return False
+
+        self.offboard_confirmed = True
+        self.arming_confirmed = bool(self.vehicle_status.armed)
+        return self.arming_confirmed
 
     @staticmethod
     def _validate_setpoint(position: list[float], yaw: float | None, yawspeed: float | None) -> None:
@@ -436,8 +526,10 @@ class Px4Controller(Node):
         return self._request(self.command_client, request, operation, command)
 
     def send_offboard_mode_command(self) -> CommandRequest:
-        """请求 PX4 切换到 Offboard 模式。"""
-        return self._command("offboard")
+        """通过 MAVROS set_mode 服务请求切换到 Offboard 模式。"""
+        request = SetMode.Request()
+        request.custom_mode = "OFFBOARD"
+        return self._request(self.mode_client, request, "offboard_mode")
 
     def send_hover_command(self) -> CommandRequest:
         """请求 PX4 切换到 AUTO.LOITER 悬停模式。"""
@@ -464,15 +556,8 @@ class Px4Controller(Node):
         return self._request(self.arming_client, request, "disarm")
 
     def uav_is_in_air(self) -> bool:
-        """根据 MAVROS landed state 和 NED 高度判断是否离地。"""
-        landed_state = int(getattr(self.extended_state, "landed_state", 0))
-        if landed_state in {
-            int(getattr(ExtendedState, "LANDED_STATE_IN_AIR", 2)),
-            int(getattr(ExtendedState, "LANDED_STATE_TAKEOFF", 3)),
-            int(getattr(ExtendedState, "LANDED_STATE_LANDING", 4)),
-        }:
-            return True
-        return math.isfinite(self.vehicle_local_position.z) and self.vehicle_local_position.z < -0.3
+        """仅在 MAVROS 明确报告空中状态时返回 True。"""
+        return self.flight_state() == "IN_AIR"
 
     def uav_position_is_valid(self) -> bool:
         """判断 MAVROS 本地位姿是否包含有效有限数值。"""
@@ -516,10 +601,15 @@ class Px4Controller(Node):
         self.setpoint_counter = 0
         self.offboard_command_sent = False
         self.arm_command_sent = False
+        self.last_offboard_request_time = 0.0
+        self.last_arm_request_time = 0.0
+        self.pending_arm_request = None
+        self.pending_offboard_request = None
         connected = bool(getattr(self.vehicle_status, "connected", False))
-        self.offboard_confirmed = connected and self.vehicle_status.mode == "OFFBOARD"
-        self.arming_confirmed = connected and self.offboard_confirmed and bool(self.vehicle_status.armed)
+        self.arming_confirmed = connected and bool(self.vehicle_status.armed)
+        self.offboard_confirmed = self.arming_confirmed and self.vehicle_status.mode == "OFFBOARD"
         self.position_hold_start_error = None
+        self.position_hold_start_detail = None
         if self.wait_for_offboard_and_arm(OFFBOARD_HANDSHAKE_TIMEOUT_S):
             return True
         self.stop_position_hold()
@@ -527,6 +617,14 @@ class Px4Controller(Node):
 
     def stop_position_hold(self) -> None:
         """停止发布位置保持 setpoint。"""
+        for request in (getattr(self, "pending_arm_request", None), getattr(self, "pending_offboard_request", None)):
+            future = getattr(request, "future", None)
+            if future is not None and not future.done():
+                cancel = getattr(future, "cancel", None)
+                if cancel is not None:
+                    cancel()
+        self.pending_arm_request = None
+        self.pending_offboard_request = None
         self.target_position = None
         self.target_yaw = None
         self.target_yawspeed = None
@@ -541,28 +639,9 @@ class Px4Controller(Node):
         if self.target_position is None:
             return
         self.publish_position_setpoint(self.target_position, self.target_yaw, self.target_yawspeed)
-        if self.vehicle_status.mode == "OFFBOARD":
-            self.offboard_confirmed = True
-        if self.vehicle_status.armed:
-            self.arming_confirmed = self.offboard_confirmed
+        # 模式可能被遥控器拨回 POSCTL；不能保留旧的确认标志。
+        self.offboard_confirmed = self.vehicle_status.mode == "OFFBOARD" and bool(self.vehicle_status.armed)
+        self.arming_confirmed = bool(self.vehicle_status.armed)
         if self.setpoint_counter < 10:
             self.setpoint_counter += 1
             return
-        if not getattr(self.vehicle_status, "connected", False):
-            return
-        if not self.offboard_confirmed and not self.offboard_command_sent:
-            try:
-                self.send_offboard_mode_command()
-                self.offboard_command_sent = True
-            except Exception:
-                self.position_hold_start_error = "OFFBOARD_REQUEST_FAILED"
-            return
-        if self.offboard_confirmed and not self.arming_confirmed and not self.arm_command_sent:
-            try:
-                self.send_arm_command()
-                self.arm_command_sent = True
-            except Exception:
-                self.position_hold_start_error = "ARMING_REQUEST_FAILED"
-            return
-        if self.vehicle_status.armed and self.offboard_confirmed:
-            self.arming_confirmed = True
