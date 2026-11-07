@@ -25,9 +25,25 @@ class ConfigError(RuntimeError):
     """Raised when runtime profile configuration is invalid."""
 
 
+def _resolve_project_root() -> Path:
+    """从源码布局或 ROS 安装前缀定位工作空间中的项目目录。"""
+    source_root = Path(__file__).resolve().parents[2]
+    if (source_root / "package.xml").is_file():
+        return source_root
+
+    from ament_index_python.packages import get_package_prefix
+
+    prefix = Path(get_package_prefix("drone_agent")).resolve()
+    workspace_root = prefix.parent.parent if prefix.name == "drone_agent" else prefix.parent
+    project_root = workspace_root / "src" / "drone_agent"
+    if not (project_root / "package.xml").is_file():
+        raise ConfigError(f"project source not found: {project_root}")
+    return project_root
+
+
 DEFAULT_PROFILE_DIR = Path(__file__).resolve().parent / "profiles"
-DEFAULT_SETTINGS_DIR = Path.home() / ".config" / "drone_agent"
-DEFAULT_SETTINGS_PATH = DEFAULT_SETTINGS_DIR / "settings.json"
+PROJECT_ROOT = _resolve_project_root()
+DEFAULT_SETTINGS_PATH = PROJECT_ROOT / "settings.json"
 SETTINGS_ENV_VAR = "DRONE_AGENT_SETTINGS"
 
 
@@ -90,6 +106,14 @@ def resolve_settings_path(settings_path: Path | None = None) -> Path:
         return Path(env_path).expanduser().resolve()
 
     return DEFAULT_SETTINGS_PATH
+
+
+def _resolve_storage_path(value: Any) -> str:
+    """将 profile 中的存储路径解析为稳定的绝对路径。"""
+    path = Path(str(value)).expanduser()
+    if not path.is_absolute():
+        path = PROJECT_ROOT / path
+    return str(path.resolve())
 
 
 def _build_profile(raw: dict[str, Any], settings: dict[str, Any]) -> RuntimeProfile:
@@ -162,9 +186,9 @@ def _build_profile(raw: dict[str, Any], settings: dict[str, Any]) -> RuntimeProf
             mavros_fcu_url=str(ros.get("mavros_fcu_url", "")).strip(),
         ),
         storage=StorageConfig(
-            photo_save_dir=str(storage["photo_save_dir"]),
-            analysis_save_dir=str(storage["analysis_save_dir"]),
-            log_dir=str(storage["log_dir"]),
+            photo_save_dir=_resolve_storage_path(storage["photo_save_dir"]),
+            analysis_save_dir=_resolve_storage_path(storage["analysis_save_dir"]),
+            log_dir=_resolve_storage_path(storage["log_dir"]),
         ),
         llm=ProviderConfig(
             base_url=llm_base_url,
@@ -195,7 +219,7 @@ def _build_profile(raw: dict[str, Any], settings: dict[str, Any]) -> RuntimeProf
             ),
             human_in_the_loop_exempt_flight_tools=frozenset(
                 tool_name.strip() for tool_name in hitl_exempt_flight_tools
-            ),
+            ),            
             max_takeoff_height_m=float(safety["max_takeoff_height_m"]),
             max_relative_move_m=float(safety["max_relative_move_m"]),
             max_vertical_move_m=float(safety["max_vertical_move_m"]),

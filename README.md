@@ -2,26 +2,36 @@
 
 `drone_agent` 是一个使用 ROS2、MAVROS 和 PX4 的自然语言无人机控制 Agent。控制器继续使用原有路径 `drone_agent/px4/controller.py` 和类名 `Px4Controller`，不新增 `mavros/` 目录。
 
+固定协作规则见 [AGENTS.md](AGENTS.md)，项目交接与当前工作分别见 [REVIEW.md](REVIEW.md)、[STATUS.md](STATUS.md)。
+
 ## 安装与构建
 
-假设 ROS2 workspace 为 `~/hw-ros2/ros2`：
+Jetson 当前 ROS2 workspace 为 `/home/jetson/drone_agent_ws`：
 
 ```bash
-cd ~/hw-ros2/ros2
+cd /home/jetson/drone_agent_ws
+source /opt/ros/humble/setup.bash
+source /home/jetson/mavros2_ws/install/setup.bash
 colcon build --packages-select drone_agent
 source install/setup.bash
 ```
 
-运行前配置模型：
+使用普通构建安装；修改源码后重新构建并重启 Agent。Jetson 只进行真机开发，不要求安装或启动仿真环境。
+
+首次运行且本地配置尚不存在时，从示例创建配置：
 
 ```bash
-mkdir -p ~/.config/drone_agent
-cp ~/hw-ros2/ros2/src/drone_agent/settings.example.json ~/.config/drone_agent/settings.json
+cp /home/jetson/drone_agent_ws/src/drone_agent/settings.example.json \
+  /home/jetson/drone_agent_ws/src/drone_agent/settings.json
 ```
 
-然后在 `settings.json` 中填写 LLM/VLM 的 API 配置。
+然后在 `settings.json` 中填写 LLM/VLM 的 API 配置。`drone_agent_real` 和 `ros2 run drone_agent drone_agent_real` 共用配置加载器，默认都读取源码仓库的这份文件；`DRONE_AGENT_SETTINGS` 可覆盖配置来源。
+
+真机图片和日志固定写入 `/home/jetson/drone_agent_ws/src/drone_agent/data/real/` 下的 `photos/`、`analysis/`、`logs/`。覆盖 settings 路径不会改变数据根目录。加载器在普通安装下通过 ROS 包索引定位工作空间中的 `src/drone_agent`；源码目录应保留，入口不再自行修改环境变量。
 
 ## MAVROS 仿真流程
+
+以下保留原电脑的仿真操作参考，Jetson 不执行这套流程。
 
 启动 UE4/AirSim 场景后，在 WSL 中依次执行：
 
@@ -78,4 +88,5 @@ drone_agent_sim
 - Python 主代码：`drone_agent/`
 - ROS2 包文件：`package.xml`、`setup.py`、`launch/`
 - 仿真配置：`drone_agent/config/profiles/sim.yaml`
-- 相机 topic：`/airsim_node/PX4/CameraDepth1/Scene`
+- 真机相机 topic：`/camera/image_raw`
+- 仿真相机 topic：`/airsim_node/PX4/CameraDepth1/Scene`

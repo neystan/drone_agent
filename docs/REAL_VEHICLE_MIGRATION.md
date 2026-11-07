@@ -58,9 +58,27 @@ ros2 service list | grep '^/mavros/'
 ```bash
 ros2 topic list | grep -i image
 ros2 topic info <rgb-image-topic>
+ros2 topic type <rgb-image-topic>
+ros2 topic hz <rgb-image-topic>
 ```
 
-将确认后的 topic 写入 `drone_agent/config/profiles/real.yaml` 的 `ros.camera_scene_topic`；未配置时，`drone_agent_real` 不会订阅相机，飞控控制仍可运行，但拍照和视觉工具不可用。
+当前 profile 默认使用你自己的 `opencv_camera_ros2` 发布的 `/camera/image_raw`，要求其类型为 `sensor_msgs/msg/Image`。如果启动时通过 `image_topic` 参数指定了其他 topic，只需同步修改 `drone_agent/config/profiles/real.yaml` 的 `ros.camera_scene_topic`；`sensor_msgs/msg/CompressedImage` 话题当前不支持。
+
+真机照片、分析帧和 JSONL 日志固定写入项目目录下的 `data/real/`。配置加载器同时支持源码运行和普通 colcon 安装：安装后通过 ROS 包索引定位工作空间的 `src/drone_agent`，不再把 Python 的 `site-packages` 当作项目根目录。
+
+当前 Jetson 的完整路径为：
+
+| 用途 | 路径 |
+| --- | --- |
+| 默认模型与服务配置 | `/home/jetson/drone_agent_ws/src/drone_agent/settings.json` |
+| 真机 profile 源码 | `/home/jetson/drone_agent_ws/src/drone_agent/drone_agent/config/profiles/real.yaml` |
+| 拍照图片 | `/home/jetson/drone_agent_ws/src/drone_agent/data/real/photos` |
+| 分析图、检测标注图和结果 JSON | `/home/jetson/drone_agent_ws/src/drone_agent/data/real/analysis` |
+| Agent、工具和任务状态 JSONL | `/home/jetson/drone_agent_ws/src/drone_agent/data/real/logs` |
+
+`drone_agent_real` 与 `ros2 run drone_agent drone_agent_real` 的默认配置和数据路径一致，当前工作目录不影响解析。显式配置路径及 `DRONE_AGENT_SETTINGS` 只覆盖配置来源，不改变运行数据根目录。真实配置与数据均不提交。
+
+修改源码或 profile 后先运行 `colcon build --packages-select drone_agent`，再加载 `install/setup.bash` 并重启 Agent；profile 仍从构建安装副本加载。旧安装区 `site-packages/data/real/` 中的历史资料保持原位，本次修复不移动或删除已有数据。
 
 ## 4. 启动顺序
 
@@ -73,13 +91,16 @@ ros2 topic info <rgb-image-topic>
 <camera-driver-launch-command>
 
 # 终端 3：Agent
-cd ~/hw-ros2/ros2
+cd /home/jetson/drone_agent_ws
 source /opt/ros/humble/setup.bash
+source /home/jetson/mavros2_ws/install/setup.bash
 source install/setup.bash
 drone_agent_real
 ```
 
 `drone_agent_real` 启动后，先执行状态、电池和位置查询。首次受控飞行只允许低高度起飞、短时悬停和降落；确认每一步的 PX4 状态后，再增加移动或视觉任务。
+
+Agent 的真机起飞握手顺序与现场已验证的控制器一致：保持遥控器在 POSCTL（定点）等人工模式，Agent 先通过 `/mavros/cmd/arming` 请求并确认 `armed=true`，随后通过 `/mavros/set_mode` 请求并确认 `mode=OFFBOARD`，最后才开始爬升。起飞前不要把拨杆预先置于 OFFBOARD；若解锁失败，应先查看 `/mavros/statustext/recv` 中的 PX4 PreArm 原因。
 
 ## 5. 首飞前的停止条件
 

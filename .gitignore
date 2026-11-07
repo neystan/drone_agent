@@ -45,6 +45,7 @@ settings.json
 # ROS and project runtime artifacts
 log/
 logs/
+data/
 *.db3
 *.mcap
 

@@ -3,18 +3,18 @@ mode: real
 
 ros:
   node_name: drone_agent_real
-  camera_scene_topic: /airsim_node/PX4/CameraDepth1/Scene
+  camera_scene_topic: /camera/image_raw
 
 storage:
-  photo_save_dir: /home/hw/picture_real
-  analysis_save_dir: /home/hw/picture_real/analysis_frames
-  log_dir: /home/hw/drone_agent_logs/real
+  photo_save_dir: data/real/photos
+  analysis_save_dir: data/real/analysis
+  log_dir: data/real/logs
 
 safety:
   human_in_the_loop_for_flight_tools: true
   human_in_the_loop_exempt_flight_tools:
     - rotate
-    - land
+    - land 
   max_takeoff_height_m: 3
   max_relative_move_m: 5
   max_vertical_move_m: 2
