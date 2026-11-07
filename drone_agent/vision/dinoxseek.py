@@ -39,17 +39,58 @@ def detect_image_targets(
 
 
 def add_detection_visualization(result: dict[str, Any], image_path: Path) -> None:
-    """把检测框写入相机预览 overlay。"""
+    """保存检测标注图，并把检测框写入相机预览 overlay。"""
     objects = result.get("objects", [])
     if not objects:
         clear_detection_overlay()
         return
 
     try:
+        annotated_image_path = save_detection_visualization(image_path, objects)
+        result["annotated_image_path"] = str(annotated_image_path)
+    except Exception as exc:
+        result["visualization_error"] = str(exc)
+
+    try:
         write_detection_overlay(objects)
         result["overlay_updated"] = True
     except Exception as exc:
-        result["visualization_error"] = str(exc)
+        result["overlay_error"] = str(exc)
+
+
+def save_detection_visualization(
+    image_path: Path,
+    objects: list[dict[str, Any]],
+) -> Path:
+    """在 DINO 实际检测的输入图上绘制候选框并保存。"""
+    import cv2
+
+    image = cv2.imread(str(image_path))
+    if image is None:
+        raise OSError(f"failed to read detection image: {image_path}")
+
+    for obj in objects:
+        bbox = obj.get("bbox_xyxy_px")
+        if not isinstance(bbox, list) or len(bbox) < 4:
+            continue
+        x1, y1, x2, y2 = [int(round(float(value))) for value in bbox[:4]]
+        cv2.rectangle(image, (x1, y1), (x2, y2), (0, 0, 255), 2)
+        label = f"{obj.get('index', '?')}: {obj.get('label', 'target')}"
+        cv2.putText(
+            image,
+            label,
+            (max(0, x1), max(20, y1 - 8)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            (0, 0, 255),
+            2,
+            cv2.LINE_AA,
+        )
+
+    annotated_image_path = image_path.with_name(f"{image_path.stem}_dinoxseek.png")
+    if not cv2.imwrite(str(annotated_image_path), image):
+        raise OSError(f"failed to save detection visualization: {annotated_image_path}")
+    return annotated_image_path
 
 
 def call_dinoxseek(

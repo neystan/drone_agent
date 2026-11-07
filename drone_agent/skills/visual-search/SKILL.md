@@ -71,3 +71,4 @@ analyze_view(target_description="红色椅子")
 rotate(direction="left", degrees=20)
 analyze_view(target_description="红色椅子")
 ```
+
