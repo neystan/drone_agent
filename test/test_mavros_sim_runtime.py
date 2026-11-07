@@ -33,11 +33,13 @@ def _install_ros_stubs() -> None:
     mavros_msgs_msg.ExtendedState = type("ExtendedState", (), {})
     mavros_msgs_msg.PositionTarget = type("PositionTarget", (), {})
     mavros_msgs_msg.State = type("State", (), {})
+    mavros_msgs_msg.StatusText = type("StatusText", (), {})
     sys.modules.setdefault("mavros_msgs", mavros_msgs)
     sys.modules.setdefault("mavros_msgs.msg", mavros_msgs_msg)
     mavros_msgs_srv = types.ModuleType("mavros_msgs.srv")
     mavros_msgs_srv.CommandBool = type("CommandBool", (), {})
     mavros_msgs_srv.CommandLong = type("CommandLong", (), {})
+    mavros_msgs_srv.SetMode = type("SetMode", (), {})
     sys.modules.setdefault("mavros_msgs.srv", mavros_msgs_srv)
 
 

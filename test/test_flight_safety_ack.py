@@ -54,6 +54,7 @@ def _install_ros_import_stubs() -> None:
         mavros_msgs_msg.ExtendedState = type("ExtendedState", (), {})
         mavros_msgs_msg.PositionTarget = type("PositionTarget", (), {})
         mavros_msgs_msg.State = type("State", (), {})
+        mavros_msgs_msg.StatusText = type("StatusText", (), {})
         sys.modules["mavros_msgs"] = mavros_msgs
         sys.modules["mavros_msgs.msg"] = mavros_msgs_msg
 
@@ -61,6 +62,7 @@ def _install_ros_import_stubs() -> None:
         mavros_msgs_srv = types.ModuleType("mavros_msgs.srv")
         mavros_msgs_srv.CommandBool = type("CommandBool", (), {})
         mavros_msgs_srv.CommandLong = type("CommandLong", (), {})
+        mavros_msgs_srv.SetMode = type("SetMode", (), {})
         sys.modules["mavros_msgs.srv"] = mavros_msgs_srv
     if "px4_msgs.msg" not in sys.modules:
         px4_msgs = types.ModuleType("px4_msgs")
@@ -225,6 +227,89 @@ class TimeoutHandoffTest(unittest.TestCase):
         self.assertEqual(result["message"], "move timed out; PX4 AUTO_LOITER confirmed")
         controller.stop_position_hold.assert_called_once()
 
+    def test_move_accepts_nonzero_ned_z_with_ground_reference(self) -> None:
+        """验证 move 可使用非零 NED 地面基准。"""
+        context = _flight_context()
+        controller = context.controller
+        controller.vehicle_local_position.z = 4.2
+        controller.body_to_ned = Mock(return_value=(1.0, 0.0, 0.0))
+        controller.start_position_hold = Mock(return_value=True)
+        controller.is_at_target = Mock(return_value=True)
+        controller.uav_is_in_air = Mock(return_value=True)
+
+        result = flight.move(context, 1.0, 0.0, 0.0)
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["target_position_ned"], [1.0, 0.0, 4.2])
+
+    def test_move_rejects_vertical_offset_above_profile_limit(self) -> None:
+        """验证单次垂直移动仍受 profile 的安全上限限制。"""
+        context = _flight_context()
+        controller = context.controller
+        controller.start_position_hold = Mock()
+
+        result = flight.move(context, 0.0, 0.0, -2.1)
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "Z_OUT_OF_RANGE")
+        controller.start_position_hold.assert_not_called()
+
+    def test_move_allows_descent_above_recorded_ground(self) -> None:
+        """验证存在地面基准时允许安全的向下移动。"""
+        context = _flight_context()
+        controller = context.controller
+        controller.flight_state = Mock(return_value="IN_AIR")
+        controller.height_above_ground_m = Mock(return_value=0.9)
+        controller.body_to_ned = Mock(return_value=(0.0, 0.0, 0.1))
+        controller.start_position_hold = Mock(return_value=True)
+        controller.is_at_target = Mock(return_value=True)
+
+        result = flight.move(context, 0.0, 0.0, 0.1)
+
+        self.assertTrue(result["success"])
+
+    def test_move_rejects_descent_too_close_to_ground(self) -> None:
+        """验证 move 不会生成低于最小离地高度的目标。"""
+        context = _flight_context()
+        controller = context.controller
+        controller.flight_state = Mock(return_value="IN_AIR")
+        controller.height_above_ground_m = Mock(return_value=0.2)
+        controller.body_to_ned = Mock(return_value=(0.0, 0.0, 0.1))
+        controller.start_position_hold = Mock()
+
+        result = flight.move(context, 0.0, 0.0, 0.1)
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "TARGET_Z_TOO_LOW")
+        controller.start_position_hold.assert_not_called()
+
+    def test_takeoff_rejects_unknown_flight_state(self) -> None:
+        """验证 landed state 未就绪时不会发送起飞 setpoint。"""
+        context = _flight_context()
+        controller = context.controller
+        controller.flight_state = Mock(return_value=None)
+        controller.start_position_hold = Mock()
+
+        result = flight.takeoff(context, 1.0)
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "FLIGHT_STATE_UNKNOWN")
+        controller.start_position_hold.assert_not_called()
+
+    def test_land_waits_for_explicit_on_ground_state(self) -> None:
+        """验证降落只在 MAVROS 明确报告 ON_GROUND 时完成。"""
+        context = _flight_context()
+        controller = context.controller
+        controller.flight_state = Mock(side_effect=("IN_AIR", "ON_GROUND"))
+        controller.send_land_command = Mock(return_value=CommandRequest(command=21))
+        controller.wait_for_command_ack = Mock(return_value=SimpleNamespace(result=0))
+        controller.wait_for_nav_state = Mock(return_value=True)
+
+        result = flight.land(context)
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["message"], "landing complete, uav is on the ground")
+
 
 class OffboardStartupTest(unittest.TestCase):
     def test_takeoff_returns_when_offboard_startup_fails(self) -> None:
@@ -279,8 +364,12 @@ def _flight_context() -> SimpleNamespace:
         uav_is_in_air=Mock(return_value=False),
         is_at_target=Mock(return_value=False),
         current_position_ned=Mock(return_value=[0.0, 0.0, -1.0]),
+        height_above_ground_m=Mock(return_value=1.0),
         stop_position_hold=Mock(),
         get_logger=Mock(return_value=SimpleNamespace(info=Mock(), warn=Mock())),
+    )
+    controller.flight_state = Mock(
+        side_effect=lambda: "IN_AIR" if controller.uav_is_in_air() else "ON_GROUND"
     )
     safety = SimpleNamespace(
         human_in_the_loop_for_flight_tools=False,

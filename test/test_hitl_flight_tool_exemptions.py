@@ -7,6 +7,7 @@ from drone_agent.runtime.safety import requires_human_in_the_loop
 
 
 def _profile(exempt_tools: frozenset[str]) -> SimpleNamespace:
+    """构造带人工确认豁免项的测试配置。"""
     return SimpleNamespace(
         safety=SafetyConfig(
             human_in_the_loop_for_flight_tools=True,
@@ -26,6 +27,7 @@ def _profile(exempt_tools: frozenset[str]) -> SimpleNamespace:
 
 
 def test_rotate_and_land_can_be_exempt_from_human_confirmation() -> None:
+    """确认旋转和降落可豁免，起飞和移动仍需确认。"""
     profile = _profile(frozenset({"rotate", "land"}))
 
     assert not requires_human_in_the_loop(profile, "rotate")
@@ -35,6 +37,7 @@ def test_rotate_and_land_can_be_exempt_from_human_confirmation() -> None:
 
 
 def test_empty_exemption_list_keeps_flight_tools_confirmed() -> None:
+    """确认空豁免列表保留飞行工具的人工确认。"""
     profile = _profile(frozenset())
 
     assert requires_human_in_the_loop(profile, "rotate")

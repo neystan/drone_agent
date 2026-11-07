@@ -59,6 +59,7 @@ def _install_ros_stubs() -> None:
             },
         )
         mavros_msgs_msg.State = type("State", (), {})
+        mavros_msgs_msg.StatusText = type("StatusText", (), {})
         sys.modules["mavros_msgs"] = mavros_msgs
         sys.modules["mavros_msgs.msg"] = mavros_msgs_msg
 
@@ -73,6 +74,7 @@ _install_ros_stubs()
 
 import drone_agent.px4.controller as controller_module
 from drone_agent.px4.controller import Px4Controller
+from drone_agent.px4.status import flight_mode_status_dict
 
 
 def test_ned_position_is_converted_to_mavros_enu() -> None:
@@ -113,6 +115,26 @@ def test_mavros_state_maps_mode_and_arming_state() -> None:
     assert controller.vehicle_status_received
 
 
+def test_mavros_posctl_mode_is_reported_as_position_control() -> None:
+    """验证真机 Position 模式不会再显示为未知状态。"""
+    controller = object.__new__(Px4Controller)
+    controller.vehicle_status = controller_module.VehicleStatus()
+    controller.vehicle_status_received = False
+
+    controller.state_callback(SimpleNamespace(mode="POSCTL", armed=False, connected=True))
+
+    assert controller.vehicle_status.nav_state == 2
+    assert controller.vehicle_status.NAVIGATION_STATE_POSCTL == 2
+    controller.vehicle_local_position = SimpleNamespace(heading=0.0)
+    controller.uav_is_in_air = lambda: False
+    controller.uav_position_is_valid = lambda: True
+    status = flight_mode_status_dict(controller, controller_module.VehicleStatus)
+    assert status["nav_state_name"] == (
+        "NAVIGATION_STATE_POSCTL"
+    )
+    assert status["flight_state"] == "UNKNOWN"
+
+
 def test_mavros_battery_percentage_is_already_a_ratio() -> None:
     """验证 MAVROS 电量比例不会再次除以一百或误作低电告警。"""
     controller = object.__new__(Px4Controller)
@@ -130,6 +152,47 @@ def test_mavros_battery_percentage_is_already_a_ratio() -> None:
     assert controller.battery_status.remaining == 1.0
     assert controller.battery_status.warning == 0
     assert controller.battery_status_received
+
+
+def test_mavros_extended_state_is_the_only_airborne_signal() -> None:
+    """验证空地判断不再依赖本地 NED 高度。"""
+    controller = object.__new__(Px4Controller)
+    controller.extended_state_received = False
+    controller.extended_state = SimpleNamespace(landed_state=0)
+    controller.vehicle_local_position = SimpleNamespace(z=-10.0)
+    controller.pose_received = False
+
+    assert controller.flight_state() is None
+    assert not controller.uav_is_in_air()
+
+    controller.extended_state_callback(SimpleNamespace(landed_state=1))
+    assert controller.flight_state() == "ON_GROUND"
+    assert not controller.uav_is_in_air()
+
+    controller.extended_state_callback(SimpleNamespace(landed_state=2))
+    assert controller.flight_state() == "IN_AIR"
+    assert controller.uav_is_in_air()
+
+
+def test_ground_height_is_captured_before_arming_and_frozen_afterward() -> None:
+    """验证起飞后 pose 更新不会覆盖已记录的地面高度。"""
+    controller = object.__new__(Px4Controller)
+    controller.extended_state_received = True
+    controller.extended_state = SimpleNamespace(landed_state=1)
+    controller.vehicle_status = SimpleNamespace(armed=False)
+    controller.pose_received = True
+    controller.vehicle_local_position = SimpleNamespace(z=5.2)
+    controller.ground_z_ned = None
+
+    controller._capture_ground_z_if_ready()
+    assert controller.ground_z_ned == 5.2
+
+    controller.vehicle_status.armed = True
+    controller.vehicle_local_position.z = 4.2
+    controller._capture_ground_z_if_ready()
+
+    assert controller.ground_z_ned == 5.2
+    assert controller.height_above_ground_m() == 1.0
 
 
 def test_mavros_ack_result_is_preserved() -> None:
@@ -157,36 +220,46 @@ def test_sensor_subscriptions_use_sensor_data_qos() -> None:
     assert "qos_profile_sensor_data" in controller_source
 
 
-def test_timer_waits_for_offboard_before_requesting_arm() -> None:
-    """验证定时器只有确认 Offboard 后才发送解锁请求。"""
+def test_timer_only_publishes_setpoint_during_handshake() -> None:
+    """验证服务握手由 start_position_hold 负责，定时器只发布 setpoint。"""
     controller = object.__new__(Px4Controller)
     controller.target_position = [0.0, 0.0, -1.0]
     controller.target_yaw = None
     controller.target_yawspeed = None
-    controller.setpoint_counter = 10
+    controller.setpoint_counter = 0
     controller.offboard_command_sent = False
     controller.arm_command_sent = False
     controller.offboard_confirmed = False
     controller.arming_confirmed = False
     controller.vehicle_status = SimpleNamespace(mode="", armed=False, connected=True)
     controller.publish_position_setpoint = lambda *_args: None
-    controller.send_offboard_mode_command = lambda: SimpleNamespace()
-    arm_requests: list[bool] = []
-    controller.send_arm_command = lambda: arm_requests.append(True)
 
     controller.timer_callback()
 
-    assert controller.offboard_command_sent is True
-    assert arm_requests == []
+    assert controller.setpoint_counter == 1
 
-    controller.timer_callback()
 
-    assert arm_requests == []
+def test_wait_handshake_arms_then_switches_offboard(monkeypatch) -> None:
+    """验证握手严格按 ARM -> OFFBOARD 顺序执行。"""
+    controller = object.__new__(Px4Controller)
+    controller.setpoint_counter = 10
+    controller.vehicle_status = SimpleNamespace(mode="POSCTL", armed=False, connected=True)
+    controller.timer_period = 0.001
+    controller.position_hold_start_error = None
+    controller.position_hold_start_detail = None
+    controller.arming_confirmed = False
+    controller.offboard_confirmed = False
+    calls: list[str] = []
+    class Future:
+        def done(self): return True
+        def result(self): return SimpleNamespace(success=True)
+    controller.send_arm_command = lambda: calls.append("arm") or SimpleNamespace(future=Future())
+    controller.send_offboard_mode_command = lambda: calls.append("offboard") or SimpleNamespace(future=Future())
+    controller.wait_for_arming_state = lambda *_args, **_kwargs: setattr(controller.vehicle_status, "armed", True) or True
+    controller.wait_for_nav_state = lambda *_args, **_kwargs: setattr(controller.vehicle_status, "mode", "OFFBOARD") or True
 
-    controller.vehicle_status.mode = "OFFBOARD"
-    controller.timer_callback()
-
-    assert arm_requests == [True]
+    assert controller.wait_for_offboard_and_arm(0.1)
+    assert calls == ["arm", "offboard"]
 
 
 def test_start_position_hold_returns_false_when_handshake_fails() -> None:
