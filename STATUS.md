@@ -1,10 +1,12 @@
 # 当前状态与待办
 
-最后更新：2026-11-07（Asia/Shanghai）。项目架构、已有实现和历史证据见 [REVIEW.md](REVIEW.md)，固定协作规则见 [AGENTS.md](AGENTS.md)。
+最后更新：2026-11-23（Asia/Shanghai，本次更新 Windows 本地 Git 接入与目标流程图归档状态；Jetson 状态沿用 2026-11-07 的记录）。项目架构、已有实现和历史证据见 [REVIEW.md](REVIEW.md)，固定协作规则见 [AGENTS.md](AGENTS.md)。
 
 ## 当前状态
 
-- 工作目录为 `/home/jetson/drone_agent_ws`，开发仓库为 `src/drone_agent`；相机包在 `src/opencv_camera_ros2`。
+- Windows 本地副本 `C:\Users\stan\Documents\ChatGPT\drone_agent 2` 已于 2026-11-23 接入 `https://github.com/neystan/drone_agent.git`，本地 `main` 跟踪 `origin/main`；接入时基线为 `42ff799`，校验的 92 个现有工作文件内容全部未变，且与远端一致。用户随后明确授权提交并推送本次流程图与说明文档。
+- 已将用户确认的横向目标流程图放入 `docs/diagrams/`，保留 [draw.io 源图](docs/diagrams/feishu-rgbd-follow.drawio)和 [PNG 预览](docs/diagrams/feishu-rgbd-follow.png)，README 与 REVIEW 已补充入口，图表与说明随本次文档提交纳入版本管理。原生 XML 结构及 13 条连接引用、PNG 完整性、6 处图表链接与差异格式检查通过。此次仅归档方案图和更新说明，未实现图中的待办功能或验证设备行为。
+- Jetson 历史基线：工作目录为 `/home/jetson/drone_agent_ws`，开发仓库为 `src/drone_agent`；相机包在 `src/opencv_camera_ros2`。以下设备与运行结果均为历史记录，本次未重新验证。
 - 已完成维护入口、双交接文档初始化、待办 1、路径修复 1a 和同步 1b。在远端 `d5fcb43` 基础上，部署配置、DINO 可视化、实机测试三组代码已提交并推送，分别为 `ba0f535`、`2f1f427`、`a9a9d09`；维护文档随当前提交更新。既有安全提交和本机实机修改均保留。
 - 用户以前在真机运行过自然语言基础动作、识图和寻物；本轮没有复测。
 - 校园网 `stu-wlan` 已在 Jetson 检查为正常联网，自动连接已开启；重启后认证和飞行区域覆盖未验证。
@@ -27,6 +29,7 @@
 6. 采用 AGENTS.md 固定规则、REVIEW.md 长期交接、STATUS.md 当前工作的维护方式。
 7. 用户先要求只在本地、不提交，且已删除本轮备份；随后确认统一配置/数据位置、继续普通 colcon 构建、保留共用代码和离线测试，并同意先完成本地修复与云端差异内容整合。2026-11-07 又明确要求“推送”，现已按该授权完成本次提交和同步；该授权不自动扩展到后续功能开发或设备操作。
 8. Jetson 不做仿真、不安装对应环境；原仿真配置和资料保留参考。持续跟踪从仿真 GUI 拆出留待后续，本次不实施。
+9. 2026-11-23 确认横向目标流程：飞书 Channel 下发文字指令与接收反馈，Agent 理解任务并调用工具，HITL 通过飞书人工确认后允许控制；DINO-XSeek 调用云端 API 完成语义目标检测，SAM2 在 Jetson 本地持续分割，结合 RGB-D 深度维持指定距离并低速追踪。收到停止指令或丢失目标时走本地优先悬停通路。此方案图已归档，具体功能仍待实施与验证。
 
 ## 当前待办与建议顺序
 

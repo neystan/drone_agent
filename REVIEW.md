@@ -1,6 +1,6 @@
 # drone_agent 项目交接概览
 
-最后更新：2026-11-07（Asia/Shanghai）。当前工作见 [STATUS.md](STATUS.md)，固定协作规则见 [AGENTS.md](AGENTS.md)。
+最后更新：2026-11-23（Asia/Shanghai，本次补充目标方案流程图；设备与验证记录沿用 2026-11-07 的结果）。当前工作见 [STATUS.md](STATUS.md)，固定协作规则见 [AGENTS.md](AGENTS.md)。
 
 ## 项目目标与范围
 
@@ -11,6 +11,8 @@
 通信端只要求文字收发，不要求图片传输；采用飞书。Jetson 优先直接使用校园网，不增加机载联网配件；日常操作目标是开机自动运行、无桌面控制，减少对 NoMachine 和 HDMI 欺骗器的依赖。
 
 这些是用户确认的产品方向，具体控制方案和未实施事项见 STATUS.md；不表示整条链路已在 Jetson 实现或通过实机验证。
+
+2026-11-23 已归档用户确认的横向目标流程：[PNG 预览](docs/diagrams/feishu-rgbd-follow.png)与 [draw.io 可编辑源图](docs/diagrams/feishu-rgbd-follow.drawio)。图中明确 DINO-XSeek 调用云端 API、SAM2 使用 Jetson 本地推理、RGB-D 深度反馈维持指定跟随距离，以及 HITL 确认和本地优先悬停通路；这是目标方案图，尚未完成的功能仍以 STATUS.md 为准。
 
 ## 工作空间、仓库与资料
 

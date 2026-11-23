@@ -1,0 +1,131 @@
+<?xml version='1.0' encoding='utf-8'?>
+<mxfile host="app.diagrams.net" agent="Codex" version="24.7.17" type="device" compressed="false">
+  <diagram id="drone-follow-horizontal" name="横向技术路线">
+    <mxGraphModel dx="1660" dy="850" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1660" pageHeight="850" math="0" shadow="0" background="#FFFFFF">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" value="飞书指令驱动的无人机视觉跟随" style="text;html=0;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontFamily=Microsoft YaHei;fontSize=28;fontColor=#203448;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="60" y="42" width="1050" height="44" />
+        </mxCell>
+        <mxCell id="proposal" value="目标方案 · 横向技术路线" style="text;html=0;strokeColor=none;fillColor=none;align=right;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontFamily=Microsoft YaHei;fontSize=15;fontColor=#6D7C89;fontStyle=0;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="1250" y="50" width="350" height="28" />
+        </mxCell>
+        <mxCell id="local-caption" value="Jetson 本地感知与控制" style="text;html=0;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontFamily=Microsoft YaHei;fontSize=16;fontColor=#517464;fontStyle=0;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="670" y="323" width="590" height="27" />
+        </mxCell>
+        <mxCell id="feishu" value="&lt;div style=&quot;font-size:20px;font-weight:600;margin-bottom:5px;&quot;&gt;飞书 Channel&lt;/div&gt;&lt;div style=&quot;font-size:15px;line-height:1.5;&quot;&gt;下发指令 · 接收反馈&lt;/div&gt;" style="rounded=1;arcSize=14;absoluteArcSize=1;whiteSpace=wrap;html=1;fillColor=#EEF5FC;strokeColor=#6C91B5;strokeWidth=1.5;fontColor=#20384F;fontFamily=Microsoft YaHei;fontSize=15;align=center;verticalAlign=middle;spacing=9;shadow=0;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="60" y="150" width="190" height="96" />
+        </mxCell>
+        <mxCell id="agent" value="&lt;div style=&quot;font-size:20px;font-weight:600;margin-bottom:5px;&quot;&gt;Agent&lt;/div&gt;&lt;div style=&quot;font-size:15px;line-height:1.5;&quot;&gt;理解任务 · 调用工具&lt;/div&gt;" style="rounded=1;arcSize=14;absoluteArcSize=1;whiteSpace=wrap;html=1;fillColor=#EEF5FC;strokeColor=#6C91B5;strokeWidth=1.5;fontColor=#20384F;fontFamily=Microsoft YaHei;fontSize=15;align=center;verticalAlign=middle;spacing=9;shadow=0;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="330" y="150" width="220" height="96" />
+        </mxCell>
+        <mxCell id="hitl" value="&lt;div style=&quot;font-size:20px;font-weight:600;margin-bottom:5px;&quot;&gt;HITL&lt;/div&gt;&lt;div style=&quot;font-size:15px;line-height:1.5;&quot;&gt;飞书人工确认&lt;/div&gt;" style="shape=rhombus;perimeter=rhombusPerimeter;whiteSpace=wrap;html=1;fillColor=#FFF7E6;strokeColor=#BD9A52;strokeWidth=1.5;fontColor=#665022;fontFamily=Microsoft YaHei;fontSize=15;align=center;verticalAlign=middle;spacing=9;shadow=0;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="670" y="128" width="200" height="140" />
+        </mxCell>
+        <mxCell id="dino" value="&lt;div style=&quot;font-size:20px;font-weight:600;margin-bottom:5px;&quot;&gt;DINO-XSeek&lt;/div&gt;&lt;div style=&quot;font-size:15px;line-height:1.5;&quot;&gt;云端 API 调用&lt;br&gt;语义级目标检测&lt;/div&gt;" style="rounded=1;arcSize=14;absoluteArcSize=1;whiteSpace=wrap;html=1;fillColor=#EEF5FC;strokeColor=#6C91B5;strokeWidth=1.5;fontColor=#20384F;fontFamily=Microsoft YaHei;fontSize=15;align=center;verticalAlign=middle;spacing=9;shadow=0;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="330" y="370" width="220" height="96" />
+        </mxCell>
+        <mxCell id="sam2" value="&lt;div style=&quot;font-size:20px;font-weight:600;margin-bottom:5px;&quot;&gt;SAM2&lt;/div&gt;&lt;div style=&quot;font-size:15px;line-height:1.5;&quot;&gt;Jetson 本地推理&lt;br&gt;持续目标分割&lt;/div&gt;" style="rounded=1;arcSize=14;absoluteArcSize=1;whiteSpace=wrap;html=1;fillColor=#EDF7F2;strokeColor=#709F88;strokeWidth=1.5;fontColor=#254B3B;fontFamily=Microsoft YaHei;fontSize=15;align=center;verticalAlign=middle;spacing=9;shadow=0;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="670" y="370" width="220" height="96" />
+        </mxCell>
+        <mxCell id="control" value="&lt;div style=&quot;font-size:20px;font-weight:600;margin-bottom:5px;&quot;&gt;跟随控制工具&lt;/div&gt;&lt;div style=&quot;font-size:15px;line-height:1.5;&quot;&gt;目标距离估计&lt;br&gt;维持指定跟随距离&lt;/div&gt;" style="rounded=1;arcSize=14;absoluteArcSize=1;whiteSpace=wrap;html=1;fillColor=#EDF7F2;strokeColor=#709F88;strokeWidth=1.5;fontColor=#254B3B;fontFamily=Microsoft YaHei;fontSize=15;align=center;verticalAlign=middle;spacing=9;shadow=0;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="1020" y="370" width="240" height="96" />
+        </mxCell>
+        <mxCell id="drone" value="&lt;div style=&quot;font-size:20px;font-weight:600;margin-bottom:5px;&quot;&gt;无人机低速追踪&lt;/div&gt;&lt;div style=&quot;font-size:15px;line-height:1.5;&quot;&gt;MAVROS / PX4&lt;br&gt;低速调整位置&lt;/div&gt;" style="rounded=1;arcSize=14;absoluteArcSize=1;whiteSpace=wrap;html=1;fillColor=#EDF7F2;strokeColor=#709F88;strokeWidth=1.5;fontColor=#254B3B;fontFamily=Microsoft YaHei;fontSize=15;align=center;verticalAlign=middle;spacing=9;shadow=0;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="1360" y="370" width="240" height="96" />
+        </mxCell>
+        <mxCell id="rgbd" value="&lt;div style=&quot;font-size:20px;font-weight:600;margin-bottom:5px;&quot;&gt;RGB-D 相机&lt;/div&gt;&lt;div style=&quot;font-size:15px;line-height:1.5;&quot;&gt;彩色图像 + 对齐深度&lt;/div&gt;" style="rounded=1;arcSize=14;absoluteArcSize=1;whiteSpace=wrap;html=1;fillColor=#EDF7F2;strokeColor=#709F88;strokeWidth=1.5;fontColor=#254B3B;fontFamily=Microsoft YaHei;fontSize=15;align=center;verticalAlign=middle;spacing=9;shadow=0;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="670" y="570" width="220" height="96" />
+        </mxCell>
+        <mxCell id="stop" value="&lt;div style=&quot;font-size:20px;font-weight:600;margin-bottom:5px;&quot;&gt;停止跟随&lt;/div&gt;&lt;div style=&quot;font-size:15px;line-height:1.5;&quot;&gt;请求并确认悬停&lt;br&gt;本地处理，不等待云模型&lt;/div&gt;" style="rounded=1;arcSize=14;absoluteArcSize=1;whiteSpace=wrap;html=1;fillColor=#FCEEEE;strokeColor=#C17B7B;strokeWidth=1.5;fontColor=#793B3B;fontFamily=Microsoft YaHei;fontSize=15;align=center;verticalAlign=middle;spacing=9;shadow=0;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="60" y="570" width="230" height="96" />
+        </mxCell>
+        <mxCell id="conversation" value="文字交互" style="edgeStyle=none;rounded=0;html=0;endArrow=block;endFill=1;endSize=7;strokeColor=#718397;strokeWidth=1.6;fontFamily=Microsoft YaHei;fontSize=15;fontColor=#718397;labelBackgroundColor=#FFFFFF;labelBorderColor=none;exitX=1;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;startArrow=block;startFill=1;startSize=7;" edge="1" parent="1" source="feishu" target="agent">
+          <mxGeometry as="geometry" x="0" y="0" relative="1">
+            <mxPoint as="offset" x="0.0" y="-18.0" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="control-request" value="控制请求" style="edgeStyle=none;rounded=0;html=0;endArrow=block;endFill=1;endSize=7;strokeColor=#718397;strokeWidth=1.6;fontFamily=Microsoft YaHei;fontSize=15;fontColor=#718397;labelBackgroundColor=#FFFFFF;labelBorderColor=none;exitX=1;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;" edge="1" parent="1" source="agent" target="hitl">
+          <mxGeometry as="geometry" x="0" y="0" relative="1">
+            <mxPoint as="offset" x="0.0" y="-18.0" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="semantic-query" value="目标描述" style="edgeStyle=none;rounded=0;html=0;endArrow=block;endFill=1;endSize=7;strokeColor=#718397;strokeWidth=1.6;fontFamily=Microsoft YaHei;fontSize=15;fontColor=#718397;labelBackgroundColor=#FFFFFF;labelBorderColor=none;exitX=0.5;exitY=1;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;entryPerimeter=0;" edge="1" parent="1" source="agent" target="dino">
+          <mxGeometry as="geometry" x="0" y="0" relative="1">
+            <mxPoint as="offset" x="45.0" y="-3.0" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="target-box" value="目标框" style="edgeStyle=none;rounded=0;html=0;endArrow=block;endFill=1;endSize=7;strokeColor=#718397;strokeWidth=1.6;fontFamily=Microsoft YaHei;fontSize=15;fontColor=#718397;labelBackgroundColor=#FFFFFF;labelBorderColor=none;exitX=1;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;" edge="1" parent="1" source="dino" target="sam2">
+          <mxGeometry as="geometry" x="0" y="0" relative="1">
+            <mxPoint as="offset" x="0.0" y="-18.0" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="mask" value="目标分割区域" style="edgeStyle=none;rounded=0;html=0;endArrow=block;endFill=1;endSize=7;strokeColor=#718397;strokeWidth=1.6;fontFamily=Microsoft YaHei;fontSize=15;fontColor=#718397;labelBackgroundColor=#FFFFFF;labelBorderColor=none;exitX=1;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;" edge="1" parent="1" source="sam2" target="control">
+          <mxGeometry as="geometry" x="0" y="0" relative="1">
+            <mxPoint as="offset" x="0.0" y="-18.0" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="rgb" value="RGB 图像" style="edgeStyle=none;rounded=0;html=0;endArrow=block;endFill=1;endSize=7;strokeColor=#718397;strokeWidth=1.6;fontFamily=Microsoft YaHei;fontSize=15;fontColor=#718397;labelBackgroundColor=#FFFFFF;labelBorderColor=none;exitX=0.65;exitY=0;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.65;entryY=1;entryDx=0;entryDy=0;entryPerimeter=0;" edge="1" parent="1" source="rgbd" target="sam2">
+          <mxGeometry as="geometry" x="0" y="0" relative="1">
+            <mxPoint as="offset" x="43.0" y="0.0" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="depth" value="深度信息" style="edgeStyle=none;rounded=0;html=0;endArrow=block;endFill=1;endSize=7;strokeColor=#718397;strokeWidth=1.6;fontFamily=Microsoft YaHei;fontSize=15;fontColor=#718397;labelBackgroundColor=#FFFFFF;labelBorderColor=none;exitX=1;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;entryPerimeter=0;" edge="1" parent="1" source="rgbd" target="control">
+          <mxGeometry as="geometry" x="0" y="0" relative="1">
+            <Array as="points">
+              <mxPoint x="1140" y="618" />
+            </Array>
+            <mxPoint as="offset" x="-91.0" y="-18.0" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="authorization" value="确认后允许控制" style="edgeStyle=none;rounded=0;html=0;endArrow=block;endFill=1;endSize=7;strokeColor=#A28546;strokeWidth=1.6;fontFamily=Microsoft YaHei;fontSize=15;fontColor=#A28546;labelBackgroundColor=#FFFFFF;labelBorderColor=none;exitX=1;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;entryPerimeter=0;" edge="1" parent="1" source="hitl" target="control">
+          <mxGeometry as="geometry" x="0" y="0" relative="1">
+            <Array as="points">
+              <mxPoint x="1140" y="198" />
+            </Array>
+            <mxPoint as="offset" x="-91.0" y="-18.0" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="follow-command" value="低速指令" style="edgeStyle=none;rounded=0;html=0;endArrow=block;endFill=1;endSize=7;strokeColor=#718397;strokeWidth=1.6;fontFamily=Microsoft YaHei;fontSize=15;fontColor=#718397;labelBackgroundColor=#FFFFFF;labelBorderColor=none;exitX=1;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;" edge="1" parent="1" source="control" target="drone">
+          <mxGeometry as="geometry" x="0" y="0" relative="1">
+            <mxPoint as="offset" x="0.0" y="-18.0" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="feedback" value="持续观测 · 循环调整" style="edgeStyle=none;rounded=0;html=0;endArrow=block;endFill=1;endSize=7;strokeColor=#709F88;strokeWidth=1.6;fontFamily=Microsoft YaHei;fontSize=15;fontColor=#709F88;labelBackgroundColor=#FFFFFF;labelBorderColor=none;exitX=0.5;exitY=1;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;entryPerimeter=0;dashed=1;dashPattern=6 4;" edge="1" parent="1" source="drone" target="rgbd">
+          <mxGeometry as="geometry" x="0" y="0" relative="1">
+            <Array as="points">
+              <mxPoint x="1480" y="715" />
+              <mxPoint x="780" y="715" />
+            </Array>
+            <mxPoint as="offset" x="-90.0" y="-20.0" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="stop-command" value="停止 / 悬停" style="edgeStyle=none;rounded=0;html=0;endArrow=block;endFill=1;endSize=7;strokeColor=#B26C6C;strokeWidth=1.6;fontFamily=Microsoft YaHei;fontSize=15;fontColor=#B26C6C;labelBackgroundColor=#FFFFFF;labelBorderColor=none;exitX=0.5;exitY=1;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.4130434783;entryY=0;entryDx=0;entryDy=0;entryPerimeter=0;" edge="1" parent="1" source="feishu" target="stop">
+          <mxGeometry as="geometry" x="0" y="0" relative="1">
+            <mxPoint as="offset" x="57.0" y="48.0" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="lost-target" value="目标丢失" style="edgeStyle=none;rounded=0;html=0;endArrow=block;endFill=1;endSize=7;strokeColor=#B26C6C;strokeWidth=1.6;fontFamily=Microsoft YaHei;fontSize=15;fontColor=#B26C6C;labelBackgroundColor=#FFFFFF;labelBorderColor=none;exitX=0.1818181818;exitY=1;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;entryPerimeter=0;" edge="1" parent="1" source="sam2" target="stop">
+          <mxGeometry as="geometry" x="0" y="0" relative="1">
+            <Array as="points">
+              <mxPoint x="710" y="520" />
+              <mxPoint x="175" y="520" />
+            </Array>
+            <mxPoint as="offset" x="-9.5" y="-18.0" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="hover" value="本地悬停控制" style="edgeStyle=none;rounded=0;html=0;endArrow=block;endFill=1;endSize=7;strokeColor=#B26C6C;strokeWidth=1.6;fontFamily=Microsoft YaHei;fontSize=15;fontColor=#B26C6C;labelBackgroundColor=#FFFFFF;labelBorderColor=none;exitX=0.5;exitY=1;exitDx=0;exitDy=0;exitPerimeter=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;" edge="1" parent="1" source="stop" target="drone">
+          <mxGeometry as="geometry" x="0" y="0" relative="1">
+            <Array as="points">
+              <mxPoint x="175" y="800" />
+              <mxPoint x="1620" y="800" />
+              <mxPoint x="1620" y="418" />
+            </Array>
+            <mxPoint as="offset" x="58.5" y="-20.0" />
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

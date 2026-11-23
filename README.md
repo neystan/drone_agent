@@ -4,6 +4,14 @@
 
 固定协作规则见 [AGENTS.md](AGENTS.md)，项目交接与当前工作分别见 [REVIEW.md](REVIEW.md)、[STATUS.md](STATUS.md)。
 
+## 目标方案流程图
+
+飞书文字交互、Agent/HITL 与 RGB-D 低速跟随的目标方案如下；当前实现与待办以 [STATUS.md](STATUS.md) 为准。
+
+![飞书指令驱动的无人机视觉跟随目标流程](docs/diagrams/feishu-rgbd-follow.png)
+
+[draw.io 可编辑源图](docs/diagrams/feishu-rgbd-follow.drawio)与 PNG 预览统一放在 `docs/diagrams/`；修改源图后同步更新同名预览。`.drawio` 本身为 XML 格式。
+
 ## 安装与构建
 
 Jetson 当前 ROS2 workspace 为 `/home/jetson/drone_agent_ws`：
